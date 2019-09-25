@@ -325,6 +325,7 @@ class FeatEmbeddingLayer:
         l2_val = tf.constant(0.0)
         for feat_embed in self.feat_embeds.values():
             l2_val += feat_embed.l2()
+        tf.compat.v1.summary.scalar("feat_embeds_l2", l2_val)
         return l2_val
 
     @property
@@ -388,9 +389,11 @@ class LinearLayer:
 
     def l2(self):
         if self.l2_reg > 0:
-            return tf.multiply(
+            l2_val = tf.multiply(
                 self.l2_reg, tf.nn.l2_loss(self.weights[f"{self.prefix}linear_w"])
             )
+            tf.compat.v1.summary.scalar("linear_l2", l2_val)
+            return l2_val
         else:
             return tf.constant(0.0)
 
@@ -531,6 +534,7 @@ class DNN:
                     self.l2_reg,
                     tf.nn.l2_loss(self.weights[f"{self.prefix}dnn_layer_{i}_weights"]),
                 )
+            tf.compat.v1.summary.scalar("dnn_l2", l2_val)
             return l2_val
         else:
             return tf.constant(0.0)
@@ -648,30 +652,29 @@ class CIN:
 
     def __init__(
         self,
-        hidden_units,
-        split_half,
-        activation,
+        cross_layer_units,
+        activation=None,
         dropout=None,
         l2_reg=0.00001,
         prefix="",
     ):
-        self.hidden_units = hidden_units
-        self.split_half = split_half
+        self.cross_layer_units = cross_layer_units
         self.activation = activation
         self.l2_reg = l2_reg
         self.prefix = prefix
-        self.dropout = dropout if dropout is not None else [1] * len(hidden_units) + 1
+        self.dropout = (
+            dropout if dropout is not None else [1] * len(cross_layer_units) + 1
+        )
 
-        assert len(self.hidden_units) > 0
-        assert len(self.hidden_units) + 1 == len(self.dropout)
+        assert len(self.cross_layer_units) > 0
+        assert len(self.cross_layer_units) + 1 == len(self.dropout)
 
     def _create_weights(self):
         weights = dict()
 
         field_nums = [self.field_size]
-        output_size = []
 
-        for i, size in enumerate(self.hidden_units):
+        for i, size in enumerate(self.cross_layer_units):
             name = f"{self.prefix}cin_filter_{i}"
             W = tf.Variable(
                 glorot_normal((1, field_nums[-1] * field_nums[0], size)),
@@ -690,11 +693,7 @@ class CIN:
             tf.compat.v1.logging.info(f"{name}: %s" % B.shape)
             tf.compat.v1.summary.histogram(name, B)
 
-            if self.split_half:
-                if i != len(self.hidden_units) - 1 and size % 2 > 0:
-                    raise ValueError(
-                        "layer_size must be even number except for the last layer when split_half=True"
-                    )
+            if i != len(self.cross_layer_units) - 1:
                 field_nums.append(size // 2)
             else:
                 field_nums.append(size)
@@ -715,15 +714,15 @@ class CIN:
         final_results = []
 
         split_tensor_0 = tf.split(hidden_nn_layers[0], embedding_size * [1], 2)
-        for i, size in enumerate(self.hidden_units):
+        for i, size in enumerate(self.cross_layer_units):
             split_tensor = tf.split(hidden_nn_layers[-1], embedding_size * [1], 2)
 
             dot_result_m = tf.matmul(split_tensor_0, split_tensor, transpose_b=True)
             dot_result_o = tf.reshape(
                 dot_result_m, shape=[embedding_size, -1, field_nums[0] * field_nums[i]]
             )
-
             dot_result = tf.transpose(dot_result_o, perm=[1, 0, 2])
+
             curr_out = tf.nn.conv1d(
                 dot_result,
                 filters=self.weights[f"{self.prefix}cin_filter_{i}"],
@@ -733,38 +732,35 @@ class CIN:
             curr_out = tf.nn.bias_add(
                 curr_out, self.weights[f"{self.prefix}cin_bias_{i}"]
             )
-            curr_out = self.activation(curr_out)
+            if self.activation:
+                curr_out = self.activation(curr_out)
             curr_out = tf.transpose(curr_out, perm=[0, 2, 1])
             curr_out = tf.nn.dropout(curr_out, rate=1 - self.dropout[i + 1])
 
-            if self.split_half:
+            if i != len(self.cross_layer_units) - 1:
                 field_nums.append(size // 2)
-                if i != len(self.hidden_units) - 1:
-                    next_hidden, direct_connect = tf.split(curr_out, 2 * [size // 2], 1)
-                else:
-                    direct_connect = curr_out
-                    next_hidden = 0
+                next_hidden, direct_connect = tf.split(curr_out, 2 * [size // 2], 1)
             else:
                 field_nums.append(size)
                 direct_connect = curr_out
-                next_hidden = curr_out
+                next_hidden = 0
 
             final_results.append(direct_connect)
             hidden_nn_layers.append(next_hidden)
 
         result = tf.concat(final_results, axis=1)
         result = tf.reduce_sum(result, axis=-1, keepdims=False)
-
         return Dense(units=1)(result)
 
     def l2(self):
         if self.l2_reg > 0:
             l2_val = tf.constant(0.0)
-            for i in range(len(self.hidden_units)):
+            for i in range(len(self.cross_layer_units)):
                 l2_val += tf.multiply(
                     self.l2_reg,
                     tf.nn.l2_loss(self.weights[f"{self.prefix}cin_filter_{i}"]),
                 )
+            tf.compat.v1.summary.scalar("cin_l2", l2_val)
             return l2_val
         else:
             return tf.constant(0.0)
@@ -791,6 +787,7 @@ class ASPLayer:
     def __call__(self, queries: tf.Tensor, keys: tf.Tensor) -> tf.Tensor:
         lau = LocalActivationUnit(self.hidden_units, self.activation, self.dropout)
         lau_output = lau(queries, keys)
+        raise NotImplementedError
 
 
 class LocalActivationUnit:

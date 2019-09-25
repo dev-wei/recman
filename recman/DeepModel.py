@@ -1,4 +1,4 @@
-from abc import ABCMeta, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from time import time
 
 import numpy as np
@@ -11,13 +11,13 @@ from .inputs import FeatureDictionary, FeatureInputs
 from .tb import log_scalar
 
 
-class DeepModel(BaseEstimator, TransformerMixin):
+class DeepModel(BaseEstimator, TransformerMixin, ABC):
 
     __metaclass__ = ABCMeta
 
     def __init__(
         self,
-        feat_dict: dict,
+        feat_dict: FeatureDictionary,
         epoch,
         batch_size,
         random_seed,
@@ -37,6 +37,7 @@ class DeepModel(BaseEstimator, TransformerMixin):
         self.train_results, self.valid_results = [], []
         self.interactive_session = use_interactive_session
 
+        self.tb_ops, self.tb_writer = None, None
         tf.compat.v1.set_random_seed(self.random_seed)
 
     def predict(self, X, training=False):
@@ -68,7 +69,8 @@ class DeepModel(BaseEstimator, TransformerMixin):
             (evaluate.__name__, evaluate(y, y_hat)) for evaluate in self.eval_metric
         )
 
-    def get_batch(self, X, y, batch_size, index):
+    @staticmethod
+    def get_batch(X, y, batch_size, index):
         start = index * batch_size
         end = start + batch_size
         end = end if end < len(y) else len(y)
@@ -81,11 +83,6 @@ class DeepModel(BaseEstimator, TransformerMixin):
     def load(self, file_path):
         saver = tf.train.Saver()
         saver.restore(self.session, file_path)
-
-    @property
-    @abstractmethod
-    def tb(self):
-        pass
 
     @property
     @abstractmethod
@@ -102,7 +99,7 @@ class DeepModel(BaseEstimator, TransformerMixin):
         pass
 
     @abstractmethod
-    def fit_on_batch(self, X, y, training=True):
+    def fit_on_batch(self, X, y):
         pass
 
     def _collect_feedback(
@@ -137,7 +134,8 @@ class DeepModel(BaseEstimator, TransformerMixin):
             )
             return train_results, dict()
 
-    def _log_eval(self, train_results: dict, valid_results: dict = None):
+    @staticmethod
+    def _log_eval(train_results: dict, valid_results: dict = None):
         tf_summaries = []
         for f, r in train_results.items():
             tf_summaries.append(log_scalar(tag=f"Training: {f}", value=r))
@@ -159,7 +157,14 @@ class DeepModel(BaseEstimator, TransformerMixin):
         show_progress=False,
         **kwargs,
     ):
-        tb_ops, tb_writer = self.tb
+        assert (
+            self.tb_ops is not None
+            and self.tb_writer is not None
+            and X_train is not None
+            and y_train is not None
+        )
+
+        tb_ops, tb_writer = self.tb_ops, self.tb_writer
 
         with tqdm.tqdm(
             desc="fit", total=self.epoch, disable=not show_progress
@@ -208,4 +213,5 @@ class DeepModel(BaseEstimator, TransformerMixin):
                 for tf_sum in self._log_eval(train_results, valid_results):
                     tb_writer.add_summary(tf_sum, epoch + 1)
                 tb_writer.flush()
+
                 progress.update(1)

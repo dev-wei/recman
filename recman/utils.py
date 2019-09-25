@@ -22,7 +22,7 @@ def _sparse_val_feat_to_tensor(feat, x):
     return tf.one_hot(tf.reshape(x[:, 0], shape=(-1,)), depth=feat.feat_size) * x[:, 1]
 
 
-def _multi_val_csv_to_tensor(feat, x):
+def _split_tags(feat, x):
     post_tags_str, = tf.io.decode_csv(x, [[""]])
 
     table = tf.lookup.StaticHashTable(
@@ -32,8 +32,11 @@ def _multi_val_csv_to_tensor(feat, x):
         ),
         default_value=0,
     )
+    return tf.string_split(tf.reshape(post_tags_str, shape=(-1,)), "|"), table
 
-    split_tags = tf.string_split(tf.reshape(post_tags_str, shape=(-1,)), "|")
+
+def _multi_val_csv_to_tensor(feat, x):
+    split_tags, table = _split_tags(feat, x)
 
     dense_tensor = tf.sparse.to_dense(
         tf.sparse.SparseTensor(
@@ -64,17 +67,7 @@ def to_sparse_tensor(feat, x):
 
 
 def _multi_val_csv_to_sparse_tensor(feat, x):
-    post_tags_str, = tf.io.decode_csv(x, [[""]])
-
-    table = tf.lookup.StaticHashTable(
-        tf.lookup.KeyValueTensorInitializer(
-            keys=tf.constant(list(feat.tag_hash_table.keys())),
-            values=tf.constant(list(feat.tag_hash_table.values())),
-        ),
-        default_value=0,
-    )
-
-    split_tags = tf.string_split(tf.reshape(post_tags_str, shape=(-1,)), "|")
+    split_tags, table = _split_tags(feat, x)
     return tf.SparseTensor(
         indices=split_tags.indices,
         values=table.lookup(split_tags.values),

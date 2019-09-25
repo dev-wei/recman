@@ -1,6 +1,7 @@
 import tensorflow as tf
 from sklearn.metrics import log_loss, roc_auc_score
 
+from .inputs import FeatureDictionary
 from .DeepModel import DeepModel
 from .layers import (
     CIN,
@@ -30,7 +31,7 @@ class xDeepFM(DeepModel):
 
     def __init__(
         self,
-        feat_dict: dict,
+        feat_dict: FeatureDictionary,
         embedding_size=8,
         embedding_l2_reg=0.00001,
         linear_l2_reg=0.00001,
@@ -38,13 +39,12 @@ class xDeepFM(DeepModel):
         deep_dropout=(0.6, 0.6, 0.6),  # good for range (0.6-0.9)
         deep_activation=tf.nn.relu,
         deep_l2_reg=0.0,
-        cin_hidden_units=(128, 128),
+        cin_cross_layer_units=(128, 128),
         cin_dropout=(1, 1, 1),  # good for range (0.6-0.9)
-        cin_split_half=True,
-        cin_activation=tf.nn.relu,
+        cin_activation=None,
         l2_reg=0.1,
         epoch=10,
-        batch_size=256,
+        batch_size=64,
         learning_rate=0.001,
         optimizer="adam",
         random_seed=2019,
@@ -80,8 +80,7 @@ class xDeepFM(DeepModel):
         self.embedding_size = embedding_size
         self.embedding_l2_reg = embedding_l2_reg
         self.linear_l2_reg = linear_l2_reg
-        self.cin_hidden_units = cin_hidden_units
-        self.cin_split_half = cin_split_half
+        self.cin_cross_layer_units = cin_cross_layer_units
         self.cin_activation = cin_activation
         self.cin_dropout = cin_dropout
         self.deep_hidden_units = deep_hidden_units
@@ -138,8 +137,7 @@ class xDeepFM(DeepModel):
             if self.use_cin:
                 with tf.name_scope("CompressedInteractionNetwork"):
                     cin = CIN(
-                        self.cin_hidden_units,
-                        self.cin_split_half,
+                        self.cin_cross_layer_units,
                         self.cin_activation,
                         dropout=self.cin_dropout,
                     )
@@ -183,21 +181,17 @@ class xDeepFM(DeepModel):
 
             with tf.name_scope("L2"):
                 l2_loss = feat_embeds.l2()
-                tf.compat.v1.summary.scalar("feat_embeds_l2", l2_loss)
                 self.loss += l2_loss
 
                 l2_loss = linear.l2()
-                tf.compat.v1.summary.scalar("linear_l2", l2_loss)
                 self.loss += l2_loss
 
                 if self.use_cin:
                     l2_loss = cin.l2()
-                    tf.compat.v1.summary.scalar("cin_l2", l2_loss)
                     self.loss += l2_loss
 
                 if self.use_deep:
                     l2_loss = dnn.l2()
-                    tf.compat.v1.summary.scalar("dnn_l2", l2_loss)
                     self.loss += l2_loss
 
                 tf.compat.v1.summary.scalar("loss_after_l2", self.loss)
@@ -211,10 +205,6 @@ class xDeepFM(DeepModel):
             self.tb_ops, self.tb_writer = tensor_board(self.graph, log_dir=self.log_dir)
 
             count_parameters()
-
-    @property
-    def tb(self):
-        return self.tb_ops, self.tb_writer
 
     @property
     def session(self):

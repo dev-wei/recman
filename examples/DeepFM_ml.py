@@ -3,18 +3,18 @@ import pandas as pd
 import tensorflow as tf
 
 from examples.utils import build_feat_dictionary, get_ml_dataset
-from recman import xDeepFM
+from recman import DeepFM
 
 tf.compat.v1.logging.set_verbosity(20)
 
 #%%
-df_train, df_test, domains = get_ml_dataset()
+df_train, df_test, domains = get_ml_dataset(frac=0.2)
 
 #%%
 feat_dict = build_feat_dictionary(pd.concat([df_train, df_test], axis=0), domains)
 
 #%%
-model = xDeepFM(
+model = DeepFM(
     feat_dict,
     learning_rate=0.001,
     epoch=5,

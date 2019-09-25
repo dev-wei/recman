@@ -43,7 +43,7 @@ class DeepFM(DeepModel):
         deep_activation=tf.nn.relu,
         l2_reg=0.00001,
         epoch=10,
-        batch_size=256,
+        batch_size=64,
         learning_rate=0.001,
         optimizer="adam",
         random_seed=2019,
