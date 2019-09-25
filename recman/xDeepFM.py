@@ -25,7 +25,6 @@ from .utils import (
 class xDeepFM(DeepModel):
     """
     xDeepFM
-    
     https://arxiv.org/pdf/1803.05170.pdf
     """
 
@@ -42,7 +41,6 @@ class xDeepFM(DeepModel):
         cin_cross_layer_units=(128, 128),
         cin_dropout=(1, 1, 1),  # good for range (0.6-0.9)
         cin_activation=None,
-        l2_reg=0.1,
         epoch=10,
         batch_size=64,
         learning_rate=0.001,
@@ -53,7 +51,7 @@ class xDeepFM(DeepModel):
         loss_type="logloss",
         eval_metric=(roc_auc_score, log_loss),
         what_means_greater=None,
-        use_interactive_session=True,
+        use_interactive_session=False,
         log_dir="./logs",
     ):
         DeepModel.__init__(
@@ -87,7 +85,6 @@ class xDeepFM(DeepModel):
         self.deep_dropout = deep_dropout
         self.deep_activation = deep_activation
         self.deep_l2_reg = deep_l2_reg
-        self.l2_reg = l2_reg
 
         self.use_cin = use_cin
         self.use_deep = use_deep

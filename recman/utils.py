@@ -136,16 +136,6 @@ def create_feat_inputs(feat_dict) -> FeatureInputs:
     return inputs
 
 
-def feed_feat_inputs(model, X, y, training=True):
-    feed_dict = dict()
-    for feat in model.feat_dict.values():
-        feed_dict[model.inputs[feat]] = feat(X[feat.name])
-
-    feed_dict[model.label] = y
-    feed_dict[model.train_phase] = training
-    return feed_dict
-
-
 def initialize_variables(interactive_session=False):
     init = tf.compat.v1.initializers.global_variables()
     table_init = tf.compat.v1.initializers.tables_initializer()

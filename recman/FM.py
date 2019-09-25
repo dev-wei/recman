@@ -16,7 +16,6 @@ from .utils import (
     create_loss,
     create_optimizer,
     initialize_variables,
-    feed_feat_inputs,
     tensor_board,
 )
 
@@ -33,7 +32,6 @@ class FM(DeepModel):
         embedding_l2_reg=0.00001,
         linear_l2_reg=0.00001,
         fm_dropout=(1.0, 1.0),
-        l2_reg=0.00001,
         epoch=10,
         batch_size=64,
         learning_rate=0.001,
@@ -42,7 +40,7 @@ class FM(DeepModel):
         loss_type="logloss",
         eval_metric=(roc_auc_score, log_loss),
         what_means_greater=None,
-        use_interactive_session=True,
+        use_interactive_session=False,
         log_dir="./logs",
     ):
         assert loss_type in [
@@ -69,7 +67,6 @@ class FM(DeepModel):
         self.embedding_l2_reg = embedding_l2_reg
         self.fm_dropout = fm_dropout
         self.linear_l2_reg = linear_l2_reg
-        self.l2_reg = l2_reg
 
         self.log_dir = log_dir
         self._init_graph()

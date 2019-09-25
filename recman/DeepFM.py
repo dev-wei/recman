@@ -41,7 +41,6 @@ class DeepFM(DeepModel):
         deep_dropout=(0.8, 0.8, 0.8),  # good for range (0.6-0.9)
         deep_l2_reg=0.00001,
         deep_activation=tf.nn.relu,
-        l2_reg=0.00001,
         epoch=10,
         batch_size=64,
         learning_rate=0.001,
@@ -52,7 +51,7 @@ class DeepFM(DeepModel):
         loss_type="logloss",
         eval_metric=(roc_auc_score, log_loss),
         what_means_greater=None,
-        use_interactive_session=True,
+        use_interactive_session=False,
         log_dir="./logs",
     ):
         assert use_fm or use_deep
@@ -84,7 +83,6 @@ class DeepFM(DeepModel):
         self.deep_dropout = deep_dropout
         self.deep_l2_reg = deep_l2_reg
         self.deep_activation = deep_activation
-        self.l2_reg = l2_reg
 
         self.use_fm = use_fm
         self.use_deep = use_deep
