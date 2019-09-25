@@ -7,7 +7,7 @@ import tqdm
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import shuffle
 
-from .input import FeatureDictionary, FeatureInputs
+from .inputs import FeatureDictionary, FeatureInputs
 from .tb import log_scalar
 
 

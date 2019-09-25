@@ -39,6 +39,12 @@ class FeatureDictionary(OrderedDict):
         for feat in self.values():
             feat.initialize(X[feat.name])
 
+    def save(self):
+        pass
+
+    def load(self):
+        pass
+
 
 class FeatureInputs(OrderedDict):
     @property

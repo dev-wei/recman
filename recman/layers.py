@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow.python.keras.layers import Dense
 
 from .utils import glorot_normal, to_tensor, to_sparse_tensor
-from .input import (
+from .inputs import (
     DenseFeat,
     FeatureDictionary,
     FeatureInputs,
@@ -563,7 +563,6 @@ class AFMLayer:
         weights[name] = W
         tf.compat.v1.logging.info(f"{name}: %s" % W.shape)
         tf.compat.v1.summary.histogram(name, W)
-
 
         weights[f"{self.prefix}attention_b"] = tf.Variable(
             tf.zeros((self.factor,)), dtype=tf.float32, name=f"{self.prefix}attention_b"

@@ -10,7 +10,7 @@ def get_data(data_dir, file_set="a"):
         names=["genre", "id"],
     )
     df_occupations = pd.read_csv(
-        f"{data_dir}/ml-100k/ml-100k/u.occupation",
+        f"{data_dir}/ml-100k/u.occupation",
         delimiter="|",
         header=None,
         encoding="latin-1",

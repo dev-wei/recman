@@ -4,7 +4,7 @@ from tensorflow.python.keras.layers import Dense
 from sklearn.metrics import log_loss, roc_auc_score
 
 from .DeepModel import DeepModel
-from .input import FeatureDictionary
+from .inputs import FeatureDictionary
 from .layers import (
     DNN,
     DNNCombiner,

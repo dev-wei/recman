@@ -1,25 +1,31 @@
-from recman.examples.datasets.movie_lens_100k import get_data
-from recman.xDeepFM import xDeepFM
-from workspace.evaluations.v3.FM import FM
-from workspace.evaluations.v3.DeepFM import DeepFM
-from workspace.evaluations.v3.input import (
+#%%
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import os
+
+from examples.datasets.ml_100k import get_data
+from recman import (
+    xDeepFM,
+    FM,
+    DeepFM,
+    AFM,
     FeatureDictionary,
     SparseFeat,
     DenseFeat,
     MultiValCsvFeat,
 )
-import numpy as np
-import pandas as pd
-import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 
 tf.compat.v1.logging.set_verbosity(20)
 
 #%%
-df_train, df_test, domains = get_data()
+current_dir = os.path.dirname(os.path.realpath("__file__")) + "/data"
+df_train, df_test, domains = get_data(current_dir)
 
-# samples_cnt = 5 * 1000
-# df_train, df_test = df_train.sample(samples_cnt), df_test.sample(samples_cnt)
+#%%
+samples_cnt = 5 * 1000
+df_train, df_test = df_train.sample(samples_cnt), df_test.sample(samples_cnt)
 
 df_train.loc[df_train.rating < 4, "label"] = 0
 df_train.loc[df_train.rating >= 4, "label"] = 1
@@ -30,15 +36,22 @@ print(df_train[df_train.rating < 4].shape)
 print(df_train[df_train.rating >= 4].shape)
 
 #%%
+# fmt: off
 feat_dict = FeatureDictionary()
 feat_dict["user_id"] = SparseFeat(
-    name="user_id", feat_size=len(np.unique(df_train.user_id.values)), dtype=tf.int64
+    name="user_id",
+    feat_size=len(np.unique(df_train.user_id.values)),
+    dtype=tf.int64
 )
 feat_dict["item_id"] = SparseFeat(
-    name="item_id", feat_size=len(np.unique(df_train.item_id.values)), dtype=tf.int64
+    name="item_id",
+    feat_size=len(np.unique(df_train.item_id.values)),
+    dtype=tf.int64
 )
 feat_dict["gender"] = SparseFeat(
-    name="gender", feat_size=len(np.unique(df_train.gender.values)), dtype=tf.int64
+    name="gender",
+    feat_size=len(np.unique(df_train.gender.values)),
+    dtype=tf.int64
 )
 feat_dict["occupation"] = SparseFeat(
     name="occupation",
@@ -46,15 +59,26 @@ feat_dict["occupation"] = SparseFeat(
     dtype=tf.int64,
 )
 feat_dict["zip"] = SparseFeat(
-    name="zip", feat_size=len(np.unique(df_train.zip.values)), dtype=tf.int64
+    name="zip",
+    feat_size=len(np.unique(df_train.zip.values)),
+    dtype=tf.int64
 )
 feat_dict["timestamp"] = DenseFeat(
-    name="timestamp", dtype=tf.float32, scaler=MinMaxScaler()
+    name="timestamp",
+    dtype=tf.float32,
+    scaler=MinMaxScaler()
 )
-feat_dict["age"] = DenseFeat(name="age", dtype=tf.float32, scaler=MinMaxScaler())
+feat_dict["age"] = DenseFeat(
+    name="age",
+    dtype=tf.float32,
+    scaler=MinMaxScaler()
+)
 feat_dict["genres"] = MultiValCsvFeat(
-    name="genres", tags=domains["genres"], dtype=tf.string
+    name="genres",
+    tags=domains["genres"],
+    dtype=tf.string
 )
+# fmt: on
 
 feat_dict.initialize(df_train)
 

@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from .input import FeatureInputs, SparseFeat, SparseValueFeat, MultiValCsvFeat
+from .inputs import FeatureInputs, SparseFeat, SparseValueFeat, MultiValCsvFeat
 
 
 def to_tensor(feat, x):
