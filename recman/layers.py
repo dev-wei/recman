@@ -492,9 +492,7 @@ class DNN:
 
             name = f"{self.prefix}dnn_layer_{i}_bias"
             B = tf.Variable(
-                tf.zeros((self.hidden_units[i],)),
-                name=f"{self.prefix}dnn_layer_{i}_bias",
-                dtype=tf.float32,
+                tf.zeros((self.hidden_units[i],)), name=name, dtype=tf.float32
             )  # 1 * layer[i]
             weights[name] = B
             tf.compat.v1.logging.info(f"{name}: %s" % B.shape)
@@ -761,6 +759,78 @@ class CIN:
                     tf.nn.l2_loss(self.weights[f"{self.prefix}cin_filter_{i}"]),
                 )
             tf.compat.v1.summary.scalar("cin_l2", l2_val)
+            return l2_val
+        else:
+            return tf.constant(0.0)
+
+    @property
+    def output_shape(self):
+        return -1, 1
+
+
+class CrossNet:
+    """
+    CrossNet
+    """
+
+    def __init__(self, cross_layer_num, l2_reg=0.00001, prefix=""):
+        self.cross_layer_num = cross_layer_num
+        self.l2_reg = l2_reg
+        self.prefix = prefix
+
+    def _create_weights(self):
+        weights = dict()
+
+        tf.compat.v1.logging.info(f"{self.prefix}cn_layer: {self.cross_layer_num}")
+
+        for i in range(self.cross_layer_num):
+            name = f"{self.prefix}cn_layer_{i}_weights"
+            W = tf.Variable(
+                glorot_normal((self.input_shape[-1], 1)), name=name, dtype=tf.float32
+            )
+            weights[name] = W
+            tf.compat.v1.logging.info(f"{name}: %s" % W.shape)
+            tf.compat.v1.summary.histogram(name, W)
+
+            name = f"{self.prefix}cn_layer_{i}_bias"
+            B = tf.Variable(
+                tf.zeros((self.input_shape[-1], 1)), name=name, dtype=tf.float32
+            )
+            weights[name] = B
+            tf.compat.v1.logging.info(f"{name}: %s" % B.shape)
+            tf.compat.v1.summary.histogram(name, B)
+
+        return weights
+
+    def __call__(self, inputs: tf.Tensor) -> tf.Tensor:
+        assert len(inputs.shape) == 2
+
+        self.input_shape = -1, int(inputs.shape[-1])
+        self.weights = self._create_weights()
+
+        x_0 = tf.reshape(inputs, (-1, self.input_shape[-1], 1))
+        x_i = x_0
+        for i in range(self.cross_layer_num):
+            x_i = (
+                tf.tensordot(
+                    tf.matmul(x_0, x_i, transpose_b=True),
+                    self.weights[f"{self.prefix}cn_layer_{i}_weights"],
+                    axes=1,
+                )
+                + self.weights[f"{self.prefix}cn_layer_{i}_bias"]
+            )
+
+        return Dense(units=1)(tf.reshape(x_i, (-1, self.input_shape[-1])))
+
+    def l2(self):
+        if self.l2_reg > 0:
+            l2_val = tf.constant(0.0)
+            for i in range(len(self.cross_layer_num)):
+                l2_val += tf.multiply(
+                    self.l2_reg,
+                    tf.nn.l2_loss(self.weights[f"{self.prefix}cn_layer_{i}_weights"]),
+                )
+            tf.compat.v1.summary.scalar("cn_l2", l2_val)
             return l2_val
         else:
             return tf.constant(0.0)

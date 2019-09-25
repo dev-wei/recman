@@ -3,6 +3,7 @@
 ## *Papers Citations* 
 
 - [DeepFM: A Factorization-Machine based Neural Network for CTR Prediction](https://arxiv.org/abs/1703.04247)
+- [Deep & Cross Network for Ad Click Predictions](https://arxiv.org/pdf/1708.05123.pdf)
 - [xDeepFM: Combining Explicit and Implicit Feature Interactions
    for Recommender Systems](https://arxiv.org/pdf/1803.05170.pdf)
 - [ON LARGE-BATCH TRAINING FOR DEEP LEARNING:
