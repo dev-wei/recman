@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import pandas as pd
 import tensorflow as tf
 from examples.datasets.ml_100k import get_data
 from recman import (

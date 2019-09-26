@@ -711,9 +711,13 @@ class CIN:
         hidden_nn_layers = [inputs]
         final_results = []
 
-        split_tensor_0 = tf.split(hidden_nn_layers[0], embedding_size * [1], 2)
+        split_tensor_0 = tf.split(
+            hidden_nn_layers[0], num_or_size_splits=embedding_size * [1], axis=2
+        )
         for i, size in enumerate(self.cross_layer_units):
-            split_tensor = tf.split(hidden_nn_layers[-1], embedding_size * [1], 2)
+            split_tensor = tf.split(
+                hidden_nn_layers[-1], num_or_size_splits=embedding_size * [1], axis=2
+            )
 
             dot_result_m = tf.matmul(split_tensor_0, split_tensor, transpose_b=True)
             dot_result_o = tf.reshape(
@@ -721,26 +725,26 @@ class CIN:
             )
             dot_result = tf.transpose(dot_result_o, perm=[1, 0, 2])
 
-            curr_out = tf.nn.conv1d(
+            feat_map = tf.nn.conv1d(
                 dot_result,
                 filters=self.weights[f"{self.prefix}cin_filter_{i}"],
                 stride=1,
                 padding="VALID",
             )
-            curr_out = tf.nn.bias_add(
-                curr_out, self.weights[f"{self.prefix}cin_bias_{i}"]
+            feat_map = tf.nn.bias_add(
+                feat_map, self.weights[f"{self.prefix}cin_bias_{i}"]
             )
             if self.activation:
-                curr_out = self.activation(curr_out)
-            curr_out = tf.transpose(curr_out, perm=[0, 2, 1])
-            curr_out = tf.nn.dropout(curr_out, rate=1 - self.dropout[i + 1])
+                feat_map = self.activation(feat_map)
+            feat_map = tf.transpose(feat_map, perm=[0, 2, 1])
+            feat_map = tf.nn.dropout(feat_map, rate=1 - self.dropout[i + 1])
 
             if i != len(self.cross_layer_units) - 1:
                 field_nums.append(size // 2)
-                next_hidden, direct_connect = tf.split(curr_out, 2 * [size // 2], 1)
+                next_hidden, direct_connect = tf.split(feat_map, 2 * [size // 2], 1)
             else:
                 field_nums.append(size)
-                direct_connect = curr_out
+                direct_connect = feat_map
                 next_hidden = 0
 
             final_results.append(direct_connect)

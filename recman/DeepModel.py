@@ -215,3 +215,4 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
                 tb_writer.flush()
 
                 progress.update(1)
+
