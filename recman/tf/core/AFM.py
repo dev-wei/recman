@@ -1,60 +1,51 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.keras.layers import Dense
 from sklearn.metrics import log_loss, roc_auc_score
 
 from .DeepModel import DeepModel
-from .inputs import FeatureDictionary
 from .layers import (
-    DNN,
-    DNNCombiner,
-    FMLayer,
+    # AFMLayer,
     FeatEmbeddingLayer,
-    OutputLayer,
     LinearCombiner,
     LinearLayer,
+    PredictionLayer,
 )
 from .utils import (
-    count_parameters,
-    create_feat_inputs,
+    # create_feat_inputs,
     create_loss,
     create_optimizer,
-    initialize_variables,
-    tensor_board,
 )
 
 
-class DeepFM(DeepModel):
+class AFM(DeepModel):
     """
-    DeepFM
-    https://arxiv.org/abs/1703.04247
+    Attentional Factorization Machines
+
+    https://arxiv.org/abs/1708.04617
     """
 
     def __init__(
         self,
-        feat_dict: FeatureDictionary,
+        feat_dict: dict,
         embedding_size=8,
         embedding_l2_reg=0.00001,
         linear_l2_reg=0.00001,
-        fm_dropout=(1.0, 1.0),
-        deep_hidden_units=(32, 32),
-        deep_dropout=(0.8, 0.8, 0.8),  # good for range (0.6-0.9)
-        deep_l2_reg=0.00001,
-        deep_activation=tf.nn.relu,
+        att_factor=8,
+        att_l2_reg=0.00001,
+        att_dropout=1,
         epoch=10,
-        batch_size=64,
+        batch_size=256,
         learning_rate=0.001,
         optimizer="adam",
         random_seed=2019,
-        use_fm=True,
         use_deep=True,
         loss_type="logloss",
         eval_metric=(roc_auc_score, log_loss),
+        l2_reg=0.1,
         what_means_greater=None,
-        use_interactive_session=False,
+        use_interactive_session=True,
         log_dir="./logs",
     ):
-        assert use_fm or use_deep
         assert loss_type in [
             "logloss",
             "mse",
@@ -72,20 +63,17 @@ class DeepFM(DeepModel):
         )
 
         self.learning_rate = learning_rate
-        self.optimizer = optimizer
+        self.optimizer_type = optimizer
         self.loss_type = loss_type
 
         self.embedding_size = embedding_size
         self.embedding_l2_reg = embedding_l2_reg
+        self.att_factor = att_factor
+        self.att_l2_reg = att_l2_reg
+        self.att_dropout = att_dropout
         self.linear_l2_reg = linear_l2_reg
-        self.fm_dropout = fm_dropout
-        self.deep_hidden_units = deep_hidden_units
-        self.deep_dropout = deep_dropout
-        self.deep_l2_reg = deep_l2_reg
-        self.deep_activation = deep_activation
+        self.l2_reg = l2_reg
 
-        self.use_fm = use_fm
-        self.use_deep = use_deep
         self.log_dir = log_dir
         self._init_graph()
 
@@ -93,21 +81,21 @@ class DeepFM(DeepModel):
         self.graph = tf.Graph()
 
         with self.graph.as_default():
+
             with tf.name_scope("inputs"):
+                # inputs
                 self.inputs.update(create_feat_inputs(self.feat_dict))
 
-                self.hp_fm_dropout = tf.compat.v1.placeholder(
-                    tf.float32, shape=[None], name="hp_fm_dropout"
+                self.hp_att_dropout = tf.compat.v1.placeholder(
+                    tf.float32, name="hp_att_dropout"
                 )
-                self.hp_deep_dropout = tf.compat.v1.placeholder(
-                    tf.float32, shape=[None], name="hp_deep_dropout"
-                )
+
                 self.label = tf.compat.v1.placeholder(
                     tf.float32, shape=[None, 1], name="label"
                 )
                 self.train_phase = tf.compat.v1.placeholder(tf.bool, name="train_phase")
 
-            with tf.name_scope("Embeddings"):
+            with tf.name_scope("embeddings"):
                 feat_embeds = FeatEmbeddingLayer(
                     self.feat_dict, self.embedding_size, self.embedding_l2_reg
                 )
@@ -120,7 +108,7 @@ class DeepFM(DeepModel):
                     tf.concat(list(self.feat_bias_dict.values()), axis=1),
                 )
 
-            with tf.name_scope("Linear"):
+            with tf.name_scope("linear"):
                 linear_combiner = LinearCombiner(self.feat_dict)
                 linear_inputs = linear_combiner(self.inputs)
 
@@ -128,66 +116,37 @@ class DeepFM(DeepModel):
                 self.linear_logit = linear(linear_inputs, self.train_phase)
                 self.weights.update(linear.weights)
 
-            if self.use_fm:
-                with tf.name_scope("FM"):
-                    fm = FMLayer(self.hp_fm_dropout)
-                    self.fm_logit = fm(self.feat_embeds, self.feat_bias)
-                    self.weights.update(fm.weights)
-
-            if self.use_deep:
-                with tf.name_scope("DeepNeuralNetwork"):
-                    dnn_combiner = DNNCombiner()
-                    dnn_input = dnn_combiner(
-                        [self.feat_embeds] + self.inputs.dense_inputs
-                    )
-
-                    dnn = DNN(
-                        self.deep_hidden_units,
-                        self.deep_dropout,
-                        self.deep_activation,
-                        self.deep_l2_reg,
-                    )
-                    self.dnn_logit = dnn(dnn_input)
-                    self.weights.update(dnn.weights)
-
-            with tf.name_scope("DeepFM"):
-                if self.use_fm and self.use_deep:
-                    self.final_logit = tf.add_n(
-                        [self.linear_logit, self.fm_logit, self.dnn_logit]
-                    )
-                elif self.use_fm:
-                    self.final_logit = tf.add(self.linear_logit, self.fm_logit)
-                elif self.use_deep:
-                    self.final_logit = tf.add(self.linear_logit, self.dnn_logit)
+            with tf.name_scope("afm"):
+                afm = AFMLayer(self.att_factor, self.att_dropout)
+                self.afm_logit = afm(self.feat_embeds)
+                self.weights.update(afm.weights)
 
             with tf.name_scope("output"):
-                output = OutputLayer(use_bias=False)
-                self.out = output(self.final_logit)
+                output = PredictionLayer(use_bias=False)
+                self.out = output(tf.add(self.linear_logit, self.afm_logit))
                 self.weights.update(output.weights)
 
             with tf.name_scope("loss"):
                 self.loss = create_loss(self.label, self.out, self.loss_type)
-                tf.compat.v1.summary.scalar("loss", self.loss)
 
             with tf.name_scope("l2_reg"):
                 l2_loss = feat_embeds.l2()
-                tf.compat.v1.summary.scalar("feat_embeds_l2", l2_loss)
+                tf.summary.scalar("feat_embeds_l2", l2_loss)
                 self.loss += l2_loss
 
                 l2_loss = linear.l2()
-                tf.compat.v1.summary.scalar("linear_l2", l2_loss)
+                tf.summary.scalar("linear_l2", l2_loss)
                 self.loss += l2_loss
 
-                if self.use_deep:
-                    l2_loss = dnn.l2()
-                    tf.compat.v1.summary.scalar("dnn_l2", l2_loss)
-                    self.loss += l2_loss
+                l2_loss = afm.l2()
+                tf.summary.scalar("afm_l2", l2_loss)
+                self.loss += l2_loss
 
-                tf.compat.v1.summary.scalar("loss_after_l2", self.loss)
+                tf.summary.scalar("loss_after_l2", self.loss)
 
-            with tf.name_scope("Optimizer"):
+            with tf.name_scope("optimizer"):
                 self.optimizer = create_optimizer(
-                    self.optimizer, self.learning_rate, self.loss
+                    self.optimizer_type, self.learning_rate, self.loss
                 )
 
             self.sess = initialize_variables(self.interactive_session)
@@ -207,23 +166,21 @@ class DeepFM(DeepModel):
     def output(self):
         return self.out
 
-    def create_feed_dict(self, X, y, training=True):
+    def _create_feed_dict(self, X, y, training=True):
         feed_dict = dict()
         for feat in self.feat_dict.values():
             feed_dict[self.inputs[feat]] = feat(X[feat.name])
 
         if training:
-            feed_dict[self.hp_fm_dropout] = self.fm_dropout
-            feed_dict[self.hp_deep_dropout] = self.deep_dropout
+            feed_dict[self.hp_att_dropout] = self.att_dropout
         else:
-            feed_dict[self.hp_fm_dropout] = [1] * len(self.fm_dropout)
-            feed_dict[self.hp_deep_dropout] = [1] * len(self.deep_dropout)
+            feed_dict[self.hp_att_dropout] = 1
 
         feed_dict[self.label] = y
         feed_dict[self.train_phase] = training
         return feed_dict
 
     def fit_on_batch(self, X, y):
-        loss, opt = self.session.run(
-            [self.loss, self.optimizer], feed_dict=self.create_feed_dict(X, y)
+        loss, opt = self.sess.run(
+            [self.loss, self.optimizer], feed_dict=self._create_feed_dict(X, y)
         )

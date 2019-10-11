@@ -1,9 +1,24 @@
-import tensorflow as tf
+import logging
 import numpy as np
-from .inputs import FeatureInputs, SparseFeat, SparseValueFeat, MultiValCsvFeat
+import tensorflow as tf
+
+from .inputs import MultiValCsvFeat, SparseFeat, SparseValueFeat
 
 
-def to_tensor(feat, x):
+log = logging.getLogger(__name__)
+
+
+def convert_to_sparse(labels) -> tf.SparseTensor:
+    indices = tf.where(
+        condition=tf.not_equal(x=labels, y=tf.constant(0, dtype=labels.dtype))
+    )
+    values = tf.gather_nd(labels, indices)
+    return tf.sparse.SparseTensor(
+        indices, values, dense_shape=tf.shape(labels, out_type=tf.int64)
+    )
+
+
+def one_hot(feat, x):
     if isinstance(feat, SparseFeat):
         return _sparse_feat_to_tensor(feat, x)
     elif isinstance(feat, SparseValueFeat):
@@ -32,7 +47,10 @@ def _split_tags(feat, x):
         ),
         default_value=0,
     )
-    return tf.string_split(tf.reshape(post_tags_str, shape=(-1,)), "|"), table
+    return (
+        tf.strings.split(tf.reshape(post_tags_str, shape=(-1,)), "|").to_sparse(),
+        table,
+    )
 
 
 def _multi_val_csv_to_tensor(feat, x):
@@ -75,13 +93,29 @@ def _multi_val_csv_to_sparse_tensor(feat, x):
     )
 
 
+def compute_hidden_units_s1(num_hidden_layers, input_neurons, output_neurons=1):
+    r = (input_neurons + output_neurons) ** (1 / (num_hidden_layers + 1))
+    hidden_units = []
+    for i in range(num_hidden_layers, 0, -1):
+        hidden_units.append(round(output_neurons * (r ** i)))
+
+    return hidden_units
+
+
+def compute_hidden_units_s2(num_hidden_layers, input_neurons, output_neurons=1):
+    return [
+        round((input_neurons + output_neurons) * 2 / 3)
+        for _ in range(num_hidden_layers)
+    ]
+
+
 def unique_of_2d_list(x):
     import itertools
 
     return np.unique(np.array(list(itertools.chain.from_iterable(x.tolist()))))
 
 
-def dense_to_sparse(dense_tensor: tf.Tensor) -> tf.SparseTensor:
+def dense_to_sparse(dense_tensor):
     zero = tf.constant(0, dtype=tf.int64)
     where = tf.not_equal(dense_tensor, zero)
     indices = tf.where(where)
@@ -107,98 +141,55 @@ def he_uniform(weight_shape):
     return np.random.uniform(-b, b, size=weight_shape)
 
 
-def he_normal(weight_shape):
+def he_normal(weight_shape, seed=2019):
     fan_in, fan_out = calc_fan(weight_shape)
     std = np.sqrt(2 / fan_in)
-    return tf.random.truncated_normal(mean=0, stddev=std, shape=weight_shape)
+    return tf.random.truncated_normal(mean=0, stddev=std, shape=weight_shape, seed=seed)
 
 
-def glorot_normal(weight_shape, gain=1.0):
+def glorot_normal(weight_shape, gain=1.0, seed=2019):
     fan_in, fan_out = calc_fan(weight_shape)
     std = gain * np.sqrt(2 / (fan_in + fan_out))
-    return tf.random.truncated_normal(mean=0, stddev=std, shape=weight_shape)
+    return tf.random.truncated_normal(mean=0, stddev=std, shape=weight_shape, seed=seed)
 
 
-def glorot_uniform(weight_shape, gain=1.0):
+def glorot_uniform(weight_shape, gain=1.0, seed=2019):
     fan_in, fan_out = calc_fan(weight_shape)
     b = gain * np.sqrt(6 / (fan_in + fan_out))
-    return tf.random.uniform(shape=weight_shape, minval=-b, maxval=b)
+    return tf.random.uniform(shape=weight_shape, minval=-b, maxval=b, seed=seed)
 
 
-def create_feat_inputs(feat_dict) -> FeatureInputs:
-    # inputs
-    inputs = FeatureInputs()
-
-    for feat in feat_dict.values():
-        inputs[feat] = tf.compat.v1.placeholder(
-            dtype=feat.dtype, shape=feat.get_shape(), name=f"{feat.name}_input"
-        )
-    return inputs
-
-
-def initialize_variables(interactive_session=False):
-    init = tf.compat.v1.initializers.global_variables()
-    table_init = tf.compat.v1.initializers.tables_initializer()
-    session = (
-        tf.compat.v1.InteractiveSession()
-        if interactive_session
-        else tf.compat.v1.Session()
-    )
-    session.run([init, table_init])
-    session.as_default()
-    return session
-
-
-def tensor_board(graph, log_dir="logs/"):
-    return (
-        tf.compat.v1.summary.merge_all(),
-        tf.compat.v1.summary.FileWriter(log_dir, graph),
-    )
-
-
-def create_loss(label, out, loss_type):
-    if loss_type == "logloss":
-        loss = tf.compat.v1.losses.log_loss(label, out)
-    elif loss_type == "mse":
-        loss = tf.compat.v1.losses.mean_squared_error(label, out)
+def create_loss(y_true, y_pred, task):
+    if task == "classification":
+        return tf.losses.binary_crossentropy(y_true, y_pred)
+    elif task == "regression":
+        return tf.losses.mean_squared_error(y_true, y_pred)
     else:
         raise ValueError()
 
-    return loss
 
-
-def create_optimizer(optimizer, learning_rate, loss):
+def create_optimizer(optimizer, learning_rate):
     if optimizer == "adam":
-        return tf.compat.v1.train.AdamOptimizer(
-            learning_rate=learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-8
-        ).minimize(loss)
+        return tf.optimizers.Adam(learning_rate=learning_rate)
     elif optimizer == "adagrad":
-        return tf.compat.v1.train.AdagradOptimizer(
-            learning_rate=learning_rate, initial_accumulator_value=1e-8
-        ).minimize(loss)
+        return tf.optimizers.Adagrad(learning_rate=learning_rate)
     elif optimizer == "gd":
-        return tf.compat.v1.train.GradientDescentOptimizer(
-            learning_rate=learning_rate
-        ).minimize(loss)
+        return tf.optimizers.GradientDescent(learning_rate=learning_rate)
     elif optimizer == "momentum":
-        return tf.compat.v1.train.MomentumOptimizer(
-            learning_rate=learning_rate, momentum=0.95
-        ).minimize(loss)
-    elif isinstance(optimizer, tf.compat.v1.train.Optimizer):
-        return optimizer.minimize(loss)
+        return tf.optimizers.Momentum(learning_rate=learning_rate)
+    elif isinstance(optimizer, tf.optimizers.Optimizer):
+        return optimizer
     else:
         raise ValueError()
 
 
-def count_parameters():
+def count_parameters(variables):
     total_parameters = 0
-    for variable in tf.compat.v1.get_collection(
-        tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES
-    ):
+    for variable in variables.values():
         shape = variable.get_shape()
         variable_parameters = 1
         for dim in shape:
-            variable_parameters *= dim.value
+            variable_parameters *= dim
         total_parameters += variable_parameters
 
-    tf.compat.v1.logging.info(f"parameters: {total_parameters}")
+    return total_parameters

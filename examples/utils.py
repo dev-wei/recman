@@ -2,34 +2,31 @@ import os
 import numpy as np
 import tensorflow as tf
 from examples.datasets.ml_100k import get_data
-from recman import (
-    FeatureDictionary,
-    SparseFeat,
-    DenseFeat,
-    MultiValCsvFeat,
-)
+from recman.tf.core import FeatureDictionary, SparseFeat, DenseFeat, MultiValCsvFeat
 from sklearn.preprocessing import MinMaxScaler
 
 
 def get_ml_dataset(frac=0.5):
     current_dir = os.path.dirname(os.path.realpath("__file__")) + "/data"
-    df_train, df_test, domains = get_data(current_dir)
-    df_train, df_test = df_train.sample(frac=frac), df_test
+    df_all, df_test, domains = get_data(current_dir)
+    df_all, df_test = df_all.sample(frac=frac), df_test
 
-    df_train.loc[df_train.rating < 4, "label"] = 0
-    df_train.loc[df_train.rating >= 4, "label"] = 1
+    df_all.loc[df_all.rating < 4, "label"] = 0
+    df_all.loc[df_all.rating >= 4, "label"] = 1
     df_test.loc[df_test.rating < 4, "label"] = 0
     df_test.loc[df_test.rating >= 4, "label"] = 1
+    df_train = df_all.sample(frac=0.5, random_state=2019)
+    df_valid = df_all.drop(df_train.index)
 
-    df_train.info()
-    print(df_train[df_train.rating < 4].shape)
-    print(df_train[df_train.rating >= 4].shape)
+    df_all.info()
+    print(df_all[df_all.rating < 4].shape)
+    print(df_all[df_all.rating >= 4].shape)
 
     df_test.info()
-    return df_train, df_test, domains
+    return df_train, df_valid, df_test, domains
 
 
-def build_feat_dictionary(df_data, domains):
+def build_features(df_data, domains):
     # fmt: off
     feat_dict = FeatureDictionary()
     feat_dict["user_id"] = SparseFeat(

@@ -4,21 +4,18 @@ from sklearn.metrics import log_loss, roc_auc_score
 from .inputs import FeatureDictionary
 from .DeepModel import DeepModel
 from .layers import (
-    CrossNet,
+    # CrossNet,
     DNN,
     DNNCombiner,
     FeatEmbeddingLayer,
     LinearCombiner,
     LinearLayer,
-    OutputLayer,
+    PredictionLayer,
 )
 from .utils import (
-    count_parameters,
-    create_feat_inputs,
+    # create_feat_inputs,
     create_loss,
     create_optimizer,
-    initialize_variables,
-    tensor_board,
 )
 
 
@@ -147,7 +144,7 @@ class DCN(DeepModel):
                     self.final_logit = tf.add(self.final_logit, self.linear_logit)
 
             with tf.name_scope("Output"):
-                output = OutputLayer(use_bias=False)
+                output = PredictionLayer(use_bias=False)
                 self.out = output(self.final_logit)
                 self.weights.update(output.weights)
 
@@ -189,7 +186,7 @@ class DCN(DeepModel):
     def output(self):
         return self.out
 
-    def create_feed_dict(self, X, y, training=True):
+    def create_inputs(self, X, y, training=True):
         feed_dict = dict()
         for feat in self.feat_dict.values():
             feed_dict[self.inputs[feat]] = feat(X[feat.name])
@@ -205,5 +202,5 @@ class DCN(DeepModel):
 
     def fit_on_batch(self, X, y):
         loss, opt = self.session.run(
-            [self.loss, self.optimizer], feed_dict=self.create_feed_dict(X, y)
+            [self.loss, self.optimizer], feed_dict=self.create_inputs(X, y)
         )

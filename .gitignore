@@ -125,3 +125,4 @@ dmypy.json
 .pyre/
 
 lab.py
+logs

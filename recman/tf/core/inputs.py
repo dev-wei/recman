@@ -46,34 +46,51 @@ class FeatureDictionary(OrderedDict):
         pass
 
 
-class FeatureInputs(OrderedDict):
-    @property
-    def embedding_inputs(self):
-        return [self[feat] for feat in self if not isinstance(feat, DenseFeat)]
+class DataInputs(dict):
+    _loaded = False
+
+    def load(self, feat_dict, X, y):
+        for feat in feat_dict.values():
+            self[feat.name] = tf.convert_to_tensor(
+                feat(X[feat.name]), name=f"{feat.name}_input"
+            )
+        self["y"] = tf.convert_to_tensor(y, name="y")
 
     @property
-    def sparse_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, SparseFeat)]
+    def y(self):
+        return self["y"]
 
-    @property
-    def sparse_val_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, SparseValueFeat)]
+    def embedding_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.embedding_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
 
-    @property
-    def multi_val_csv_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, MultiValCsvFeat)]
+    def sparse_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.sparse_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
 
-    @property
-    def multi_val_sparse_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, MultiValSparseFeat)]
+    def sparse_val_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.sparse_val_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
 
-    @property
-    def sequence_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, SequenceFeat)]
+    def multi_val_csv_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.multi_val_csv_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
 
-    @property
-    def dense_inputs(self):
-        return [self[feat] for feat in self if isinstance(feat, DenseFeat)]
+    def multi_val_sparse_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.multi_val_sparse_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
+
+    def sequence_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.sequence_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
+
+    def dense_inputs(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict.dense_feats}
+        return [self[feat_name] for feat_name in self if feat_name in feat_names]
+
+    def others(self, feat_dict):
+        feat_names = {feat.name for feat in feat_dict}
+        return [self[feat] for feat in self if feat.name not in feat_names]
 
 
 class MultiValLabelEncoder:
@@ -161,12 +178,11 @@ class SparseFeat:
                 if self.encoder:
                     ids = self.encoder.transform(list(self._weights.keys()))
                 weights = np.zeros((self.feat_size,))
-                weights[0] = 0
                 for idx, val in zip(ids.flatten(), self._weights.values()):
                     weights[idx] = val
                 self._weights_cache = weights
             return self._weights_cache
-        return self._weights
+        return np.zeros((self.feat_size,))
 
     def get_shape(self, for_tf=True):
         return None if for_tf else -1, 1
@@ -224,7 +240,8 @@ class SparseValueFeat:
                     weights[idx] = val
                 self._weights_cache = weights
             return self._weights_cache
-        return self._weights
+        else:
+            return np.zeros((self.feat_size,))
 
     def initialize(self, X):
         X = np.array(X.tolist()) if isinstance(X, pd.Series) else X
@@ -349,6 +366,8 @@ class MultiValSparseFeat:
 
 class MultiValCsvFeat:
     def __init__(self, name, tags=(), weights=None, dtype=tf.string, description=None):
+        """
+        """
         self.name = name
         self.dtype = dtype
         self.description = description
@@ -373,13 +392,14 @@ class MultiValCsvFeat:
     def weights(self):
         if self._weights:
             if self._weights_cache is None:
-                self._weights_cache = [0] * self.feat_size
+                self._weights_cache = np.zeros((self.feat_size,))
                 for tag, weight in self._weights.items():
                     if tag in self.tag_hash_table:
                         self._weights_cache[self.tag_hash_table[tag]] = weight
 
             return self._weights_cache
-        return self._weights
+        else:
+            return np.zeros((self.feat_size,))
 
     def __str__(self):
         return f"MultiValCsvFeat({self.name}, {len(self.tags)}, {self.dtype})"

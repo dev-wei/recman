@@ -2,7 +2,7 @@
 import pandas as pd
 import tensorflow as tf
 
-from examples.utils import build_feat_dictionary, get_ml_dataset
+from examples.utils import build_features, get_ml_dataset
 from recman import DCN
 
 tf.compat.v1.logging.set_verbosity(20)
@@ -11,7 +11,7 @@ tf.compat.v1.logging.set_verbosity(20)
 df_train, df_test, domains = get_ml_dataset(frac=0.2)
 
 #%%
-feat_dict = build_feat_dictionary(pd.concat([df_train, df_test], axis=0), domains)
+feat_dict = build_features(pd.concat([df_train, df_test], axis=0), domains)
 
 #%%
 model = DCN(
