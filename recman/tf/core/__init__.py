@@ -1,4 +1,3 @@
-from .inputs import *
 from .DeepFM import DeepFM
 from .AFM import AFM
 from .FM import FM

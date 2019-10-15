@@ -1,41 +1,24 @@
 import logging
-from logging.config import dictConfig
+from datetime import datetime
 
-logging_config = dict(
-    version=1,
-    formatters={"f": {"format": "%(asctime)s %(levelname)-8s %(message)s"}},
-    handlers={
-        "h": {"class": "logging.StreamHandler", "formatter": "f", "level": logging.INFO}
-    },
-    root={"handlers": ["h"], "level": logging.INFO},
-)
-
-dictConfig(logging_config)
-
-# #%%
-import itertools
+import numpy as np
 import pandas as pd
 import tensorflow as tf
-from datetime import datetime
-import numpy as np
-from recman.tf.core.metric import LogLoss, RocAucScore
 from tensorboard.plugins.hparams import api as hp
-from recman.tf.core import FeatureDictionary, SparseFeat, DenseFeat, MultiValCsvFeat
 
-# from recman import HP_xDeepFM, xDeepFM
-from examples.utils import build_features, get_ml_dataset
-from recman.tf.hparams import xDeepFM as HyperParams
-from recman.tf.core import xDeepFM
+from recman.tf.BestModelFinder import BestModelFinder
 from recman.tf.core import TensorBoardLogger
+from recman.tf.core import xDeepFM
+from recman.tf.core.metric import LogLoss, RocAucScore
+from recman.tf.hparams import xDeepFM as HyperParams
+from recman.tf.inputs import FeatureDictionary, MultiValCsvFeat, SparseFeat
 
-# tf.compat.v1.logging.set_verbosity(20)
-import logging
-
+log = logging.getLogger(__name__)
 logger = tf.get_logger()
 logger.setLevel(logging.ERROR)
 
-# df_train, df_valid, df_test, domains = get_ml_dataset(frac=0.01)
-#%%
+RANDOM_SEED = 2019
+TB_LOG_DIR = "./logs"
 
 # fmt: off
 df_X = pd.DataFrame(
@@ -91,71 +74,45 @@ feat_dict["HISTORICAL_CATEGORIES"] = MultiValCsvFeat(
 feat_dict.initialize(df_X)
 
 hp_params = HyperParams()
-hp_params["learning_rate"](hp.Discrete([0.01]))
-hp_params["optimizer"](hp.Discrete(["adam"]))
-#
+hp_params[HyperParams.LearningRate](hp.Discrete([0.01]))
+hp_params[HyperParams.Optimizer](hp.Discrete(["adam"]))
+
 metrices = (LogLoss(), RocAucScore())
 
-hp_writer = tf.summary.create_file_writer(f"./logs/hparams")
-with hp_writer.as_default():
-    hp.hparams_config(
-        hparams=[hparam.tf_hparam for hparam in hp_params.values()],
-        metrics=[
-            hp.Metric(f"{prefix}{eval_func}", display_name=f"{prefix}{eval_func}")
-            for prefix, eval_func in list(
-                itertools.product(*list([["TRAIN_", "VALID_", "TEST_"], metrices]))
-            )
-        ],
-    )
-
 run_name = datetime.now().strftime("%Y%m%d-%H%M%S")
-ses_num = 0
-be_score = None
 
+best_model_finder = BestModelFinder()
 
-class BestScoreFinder:
-    def __init__(self):
-        self.best_score = None
-
-    def __call__(self, variables, eval_results):
-        pass
-        # eval_results = filter(lambda r: r, eval_results)
-        # score = eval_results[-1][0]
-        # score = eval_results[0][0] if eval_results[1] is None else eval_results[1][0]
-        # if self.best_score is None or score < self.best_score:
-        #     print("Best model found!")
-        #     self.best_score = score
-        #
-        #     ckpt = tf.train.Checkpoint(**variables)
-        #     ckpt.save(f"./ckpt_model")
-
-
-best_score_finder = BestScoreFinder()
-
-# exit(1)
-
-for hp_val in hp_params.grid_search():
-    # import pickle
-    # pickle.dump(hp_val, open("hp", "wb"), protocol=pickle.HIGHEST_PROTOCOL)
-    # model = xDeepFM(feat_dict, hparams=hp_val)
-    # print(model.predict(df_X))
-    # print(model.variables["linear_w"])
-    # model.load()
-    # print(model.variables["linear_w"])
-    # print(model.predict(df_X))
-    # break
-    # print(hp_val)
-    tb_logger = TensorBoardLogger(hp_params, run_name=run_name, sess_num=ses_num)
-
-    model = xDeepFM(feat_dict, hp_val, metrics=metrices, epoch=10)
+for sess_num, hp_val in enumerate(hp_params.grid_search()):
+    tb_logger = TensorBoardLogger(
+        hp_params, run_name=run_name, sess_num=sess_num, log_dir=TB_LOG_DIR
+    )
+    model = xDeepFM(
+        feat_dict,
+        hp_val,
+        batch_size=128,
+        metrics=metrices,
+        random_seed=RANDOM_SEED,
+        epoch=1,
+    )
     model.fit(
         df_X,
         df_X["LABEL"].values,
         # X_valid=df_valid,
         # y_valid=df_valid["label"].values,
         tb_logger=tb_logger,
-        epoch_callback=best_score_finder,
+        epoch_callback=best_model_finder,
         random_seed_for_mini_batch=False,
     )
-    ses_num += 1
-# print(model.predict(df_X))
+
+log.info(
+    f"""
+---------------------------------
+Training job has completed
+RunName: {run_name}
+BestScore: {best_model_finder.best_score}
+BestHpVal: {best_model_finder.best_hp_val}
+BestEvalResults: {best_model_finder.best_eval_results}
+---------------------------------
+"""
+)

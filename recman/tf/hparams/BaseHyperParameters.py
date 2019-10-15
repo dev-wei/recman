@@ -3,6 +3,10 @@ from tensorboard.plugins.hparams import api as hp
 
 
 class HParam:
+    """
+    Hyper Parameter Wrapper
+    """
+
     def __init__(self, name, default_value):
         assert name
 
@@ -22,7 +26,6 @@ class HParam:
             )
             self._domain = [d for d in self._hparam.domain.values]
             self._advanced_dtype = False
-            return self
         except ValueError:
             valid_domain = [str(d) for d in domain]
             self._domain = domain
@@ -30,12 +33,18 @@ class HParam:
                 self._name, domain=hp.Discrete(valid_domain), display_name=self.name
             )
             self._advanced_dtype = True
-            return self
         except:
             raise RuntimeError
 
+        return self
+
     @property
     def advanced_dtype(self):
+        """
+        whether the value of the parameter is casted due to
+        not supported by tensorflow hyper parameter
+        :return: Boolean
+        """
         return self._advanced_dtype
 
     @property
@@ -56,6 +65,9 @@ class HParam:
 
 
 class BaseHyperParameters(dict):
+    """
+    Base Hyper Parameter
+    """
 
     LearningRate = "learning_rate"
     Optimizer = "optimizer"
@@ -77,9 +89,9 @@ class BaseHyperParameters(dict):
 
     def grid_search(self, print_hp=False):
         for bags in list(
-            itertools.product(
-                *list([self._possible_values(param) for param in self.values()])
-            )
+                itertools.product(
+                    *list([self._possible_values(param) for param in self.values()])
+                )
         ):
             dict_bag = dict(bag for bag in bags)
             if print_hp:

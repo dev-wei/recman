@@ -2,11 +2,15 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from collections import OrderedDict
-from tensorflow.python.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 
 class FeatureDictionary(OrderedDict):
+    """
+    Packing all Feature Definitions
+    """
+
     @property
     def embedding_feats(self):
         return [feat for feat in self.values() if not isinstance(feat, DenseFeat)]
@@ -39,14 +43,12 @@ class FeatureDictionary(OrderedDict):
         for feat in self.values():
             feat.initialize(X[feat.name])
 
-    def save(self):
-        pass
-
-    def load(self):
-        pass
-
 
 class DataInputs(dict):
+    """
+    Data inputs fed into the tf graph
+    """
+
     _loaded = False
 
     def load(self, feat_dict, X, y):
@@ -87,10 +89,6 @@ class DataInputs(dict):
     def dense_inputs(self, feat_dict):
         feat_names = {feat.name for feat in feat_dict.dense_feats}
         return [self[feat_name] for feat_name in self if feat_name in feat_names]
-
-    def others(self, feat_dict):
-        feat_names = {feat.name for feat in feat_dict}
-        return [self[feat] for feat in self if feat.name not in feat_names]
 
 
 class MultiValLabelEncoder:
@@ -187,6 +185,10 @@ class SparseFeat:
     def get_shape(self, for_tf=True):
         return None if for_tf else -1, 1
 
+    def set_weights(self, val):
+        self._weights = val
+        self._weights_cache = None
+
     def initialize(self, X):
         if self.encoder:
             self.encoder.fit(X)
@@ -203,6 +205,9 @@ class SparseFeat:
         return self.encoder.inverse_transform(x) if self.encoder else x
 
     def __str__(self):
+        return f"SparseFeat({self.name}, {self.feat_size}, {self.dtype})"
+
+    def __repr__(self):
         return f"SparseFeat({self.name}, {self.feat_size}, {self.dtype})"
 
 
@@ -270,6 +275,9 @@ class SparseValueFeat:
     def __str__(self):
         return f"SparseValueFeat({self.name}, {self.feat_size}, {self.dtype})"
 
+    def __repr__(self):
+        return f"SparseValueFeat({self.name}, {self.feat_size}, {self.dtype})"
+
 
 class DenseFeat:
     def __init__(
@@ -298,7 +306,7 @@ class DenseFeat:
         if self.scaler:
             self.scaler.fit(X.values.reshape(-1, 1))
 
-    def __call__(self, x, train_phase: tf.Tensor = tf.constant(True, dtype=tf.bool)):
+    def __call__(self, x):
         x = np.array(x, dtype=self.dtype.as_numpy_dtype)
 
         if self.scaler:
@@ -309,6 +317,9 @@ class DenseFeat:
         )
 
     def __str__(self):
+        return f"DenseFeat({self.name}, {self.feat_size}, {self.dtype})"
+
+    def __repr__(self):
         return f"DenseFeat({self.name}, {self.feat_size}, {self.dtype})"
 
 
@@ -363,6 +374,9 @@ class MultiValSparseFeat:
     def __str__(self):
         return f"MultiValSparseFeat({self.name}, {self.feat_size}, {self.dtype})"
 
+    def __repr__(self):
+        return f"MultiValSparseFeat({self.name}, {self.feat_size}, {self.dtype})"
+
 
 class MultiValCsvFeat:
     def __init__(self, name, tags=(), weights=None, dtype=tf.string, description=None):
@@ -388,6 +402,10 @@ class MultiValCsvFeat:
     def __call__(self, x, training=True):
         return np.array(x).reshape(self.get_shape(for_tf=False))
 
+    def set_weights(self, val):
+        self._weights = val
+        self._weights_cache = None
+
     @property
     def weights(self):
         if self._weights:
@@ -402,6 +420,9 @@ class MultiValCsvFeat:
             return np.zeros((self.feat_size,))
 
     def __str__(self):
+        return f"MultiValCsvFeat({self.name}, {len(self.tags)}, {self.dtype})"
+
+    def __repr__(self):
         return f"MultiValCsvFeat({self.name}, {len(self.tags)}, {self.dtype})"
 
 
@@ -419,6 +440,8 @@ class SequenceFeat:
         self.encoder = (
             MultiValLabelEncoder(self.id_feat.encoder) if self.id_feat.encoder else None
         )
+
+        raise NotImplementedError("Sequence feature is not yet completed")
 
     def get_shape(self, for_tf=True):
         return None if for_tf else -1, self.max_len
@@ -439,4 +462,7 @@ class SequenceFeat:
         return self.encoder.inverse_transform(x - 1) if self.encoder else x
 
     def __str__(self):
+        return f"SequenceFeat({self.name}, {self.id_feat.name}, {self.dtype})"
+
+    def __repr__(self):
         return f"SequenceFeat({self.name}, {self.id_feat.name}, {self.dtype})"

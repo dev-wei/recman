@@ -6,14 +6,14 @@ from .layers import (
     DNN,
     DNNCombiner,
     FeatEmbeddingLayer,
-    LinearCombiner,
-    LinearLayer,
-    LinearCombiner2,
-    LinearLayer2,
+    SparseLinearCombiner,
+    SparseLinearLayer,
+    # LinearCombiner,
+    # LinearLayer,
     PredictionLayer,
 )
-from .utils import create_loss, create_optimizer
-from .inputs import FeatureDictionary, DataInputs
+from .utils import create_loss, create_optimizer, get_linear_features
+from ..inputs import FeatureDictionary, DataInputs
 from ..hparams.xDeepFM import xDeepFM as HyperParams
 
 
@@ -51,20 +51,24 @@ class xDeepFM(DeepModel):
             self.feat_dict,
             self.hparams[HyperParams.EmbeddingSize],
             self.hparams[HyperParams.EmbeddingL2Reg],
-
+            use_bias=False,
+            seed=self.random_seed,
         )
         feat_embeds, feat_bias = self.embeddings(inputs)
 
-        # linear_combiner = LinearCombiner2(self.feat_dict)
-        # linear_inputs = linear_combiner(inputs)
-        #
-        # self.linear = LinearLayer2(
-        #     self.variables,
-        #     self.feat_dict,
-        #     self.hparams[HyperParams.LinearL2Reg],
-        #     training=training,
-        # )
-        # linear_logit = self.linear(linear_inputs)
+        linear_feats = get_linear_features(
+            self.feat_dict, self.hparams[HyperParams.LinearFeatures]
+        )
+        linear_combiner = SparseLinearCombiner(linear_feats)
+        linear_inputs = linear_combiner(inputs)
+
+        self.linear = SparseLinearLayer(
+            self.variables,
+            linear_feats,
+            self.hparams[HyperParams.LinearL2Reg],
+            training=training,
+        )
+        linear_logit = self.linear(linear_inputs)
 
         self.cin = CIN(
             self.variables,
@@ -94,7 +98,7 @@ class xDeepFM(DeepModel):
 
         with tf.name_scope("xDeepFM"):
             final_logit = tf.add_n(
-                [cin_logit, dnn_logit], name="final_logit"
+                [linear_logit + cin_logit + dnn_logit], name="final_logit"
             )
 
         return PredictionLayer(self.variables, self.task)(final_logit)
@@ -105,7 +109,7 @@ class xDeepFM(DeepModel):
             [loss]
             + [
                 layer.l2()
-                for layer in [self.embeddings, self.cin, self.dnn]
+                for layer in [self.embeddings, self.linear, self.dnn, self.cin]
             ]
         )
 

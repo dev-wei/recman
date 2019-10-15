@@ -7,9 +7,9 @@ from .utils import (
     one_hot,
     to_sparse_tensor,
     compute_hidden_units_s2,
-    convert_to_sparse,
+    convert_to_sparse_tensor,
 )
-from .inputs import (
+from ..inputs import (
     DenseFeat,
     MultiValCsvFeat,
     MultiValSparseFeat,
@@ -72,25 +72,39 @@ class FeatEmbedding:
 
     display_name = "FeatEmbedding"
 
-    def __init__(self, variables, feat, embedding_size, l2_reg=0.00001, prefix=""):
+    def __init__(
+        self,
+        variables,
+        feat,
+        embedding_size,
+        l2_reg=0.00001,
+        use_bias=True,
+        prefix="",
+        seed=2019,
+    ):
         assert not isinstance(feat, DenseFeat)
+
+        self.variables = variables
         self.feat = feat
         self.embedding_size = embedding_size
         self.l2_reg = l2_reg
+        self.use_bias = use_bias
         self.prefix = prefix
-        self.variables = variables
+        self.seed = seed
 
     def _upsert_variables(self):
         name = f"{self.prefix}{self.feat.name}_feat_embed"
         if name not in self.variables:
             self.variables[name] = tf.Variable(
-                glorot_normal([self.feat.feat_size, self.embedding_size]),
+                glorot_normal(
+                    [self.feat.feat_size, self.embedding_size], seed=self.seed
+                ),
                 dtype=tf.float32,
                 name=name,
             )
 
         name = f"{self.prefix}{self.feat.name}_feat_bias"
-        if name not in self.variables:
+        if name not in self.variables and self.use_bias:
             self.variables[name] = tf.Variable(
                 tf.zeros([self.feat.feat_size, 1]), name=name, dtype=tf.float32
             )
@@ -99,22 +113,33 @@ class FeatEmbedding:
         with tf.name_scope(f"{self.prefix}{self.feat.name}_{self.display_name}"):
             self._upsert_variables()
 
-            if isinstance(self.feat, SparseFeat) or isinstance(
-                self.feat, SparseValueFeat
-            ):
+            feat_bias = None
+            if isinstance(self.feat, SparseFeat):
                 feat_embeds = tf.nn.embedding_lookup(
                     self.variables[f"{self.prefix}{self.feat.name}_feat_embed"],
                     feat_input[:, :1],
                     name=f"{self.prefix}{self.feat.name}_embed_lookup",
                 )
-                feat_bias = tf.nn.embedding_lookup(
-                    self.variables[f"{self.prefix}{self.feat.name}_feat_bias"],
+                if self.use_bias:
+                    feat_bias = tf.nn.embedding_lookup(
+                        self.variables[f"{self.prefix}{self.feat.name}_feat_bias"],
+                        feat_input[:, :1],
+                        name=f"{self.prefix}{self.feat.name}_bias_lookup",
+                    )
+            elif isinstance(self.feat, SparseValueFeat):
+                feat_embeds = tf.nn.embedding_lookup(
+                    self.variables[f"{self.prefix}{self.feat.name}_feat_embed"],
                     feat_input[:, :1],
-                    name=f"{self.prefix}{self.feat.name}_bias_lookup",
+                    name=f"{self.prefix}{self.feat.name}_embed_lookup",
                 )
+                if self.use_bias:
+                    feat_bias = tf.nn.embedding_lookup(
+                        self.variables[f"{self.prefix}{self.feat.name}_feat_bias"],
+                        feat_input[:, :1],
+                        name=f"{self.prefix}{self.feat.name}_bias_lookup",
+                    )
 
-                if isinstance(self.feat, SparseValueFeat):
-                    feat_embeds = tf.multiply(feat_embeds, feat_input[:, 1])
+                feat_embeds = tf.multiply(feat_embeds, feat_input[:, 1])
 
             elif isinstance(self.feat, MultiValCsvFeat) or isinstance(
                 self.feat, MultiValSparseFeat
@@ -131,16 +156,17 @@ class FeatEmbedding:
                     ),
                     shape=[-1, 1, self.embedding_size],
                 )
-                feat_bias = tf.reshape(
-                    tf.nn.embedding_lookup_sparse(
-                        self.variables[f"{self.prefix}{self.feat.name}_feat_bias"],
-                        sp_ids=sparse_tensor,
-                        sp_weights=None,
-                        combiner="sqrtn",
-                        name=f"{self.prefix}{self.feat.name}_bias_lookup",
-                    ),
-                    shape=[-1, 1, 1],
-                )
+                if self.use_bias:
+                    feat_bias = tf.reshape(
+                        tf.nn.embedding_lookup_sparse(
+                            self.variables[f"{self.prefix}{self.feat.name}_feat_bias"],
+                            sp_ids=sparse_tensor,
+                            sp_weights=None,
+                            combiner="sqrtn",
+                            name=f"{self.prefix}{self.feat.name}_bias_lookup",
+                        ),
+                        shape=[-1, 1, 1],
+                    )
 
             elif isinstance(self.feat, SequenceFeat):
                 feat_embeds = tf.nn.embedding_lookup(
@@ -148,11 +174,14 @@ class FeatEmbedding:
                     feat_input,
                     name=f"{self.prefix}{self.feat.name}_embed_lookup",
                 )
-                feat_bias = tf.nn.embedding_lookup(
-                    self.variables[f"{self.prefix}{self.feat.id_feat.name}_feat_bias"],
-                    feat_input,
-                    name=f"{self.prefix}{self.feat.name}_bias_lookup",
-                )
+                if self.use_bias:
+                    feat_bias = tf.nn.embedding_lookup(
+                        self.variables[
+                            f"{self.prefix}{self.feat.id_feat.name}_feat_bias"
+                        ],
+                        feat_input,
+                        name=f"{self.prefix}{self.feat.name}_bias_lookup",
+                    )
 
         return feat_embeds, feat_bias
 
@@ -171,12 +200,23 @@ class FeatEmbeddingLayer:
 
     display_name = "FeatEmbeddingLayer"
 
-    def __init__(self, variables, feat_dict, embedding_size, l2_reg=0.00001, prefix=""):
+    def __init__(
+        self,
+        variables,
+        feat_dict,
+        embedding_size,
+        l2_reg=0.00001,
+        use_bias=True,
+        prefix="",
+        seed=2019,
+    ):
         self.variables = variables
         self.feat_dict = feat_dict
         self.embedding_size = embedding_size
         self.l2_reg = l2_reg
+        self.use_bias = use_bias
         self.prefix = prefix
+        self.seed = seed
 
         # TODO: sort the list by putting the Sequence features to the last
         self.feat_embeds = dict(
@@ -187,7 +227,9 @@ class FeatEmbeddingLayer:
                     feat,
                     self.embedding_size,
                     self.l2_reg,
+                    use_bias=use_bias,
                     prefix=prefix,
+                    seed=self.seed,
                 ),
             )
             for feat in self.feat_dict.embedding_feats
@@ -200,7 +242,8 @@ class FeatEmbeddingLayer:
             for feat in self.feat_embeds:
                 feat_embed, feat_bias = self.feat_embeds[feat](inputs[feat.name])
                 self.feat_embeds_dict[feat.name] = feat_embed
-                self.feat_bias_dict[feat.name] = feat_bias
+                if self.use_bias:
+                    self.feat_bias_dict[feat.name] = feat_bias
 
             return (
                 tf.concat(
@@ -212,7 +255,9 @@ class FeatEmbeddingLayer:
                     list(self.feat_bias_dict.values()),
                     axis=1,
                     name=f"{self.prefix}feat_bias",
-                ),
+                )
+                if self.use_bias
+                else None,
             )
 
     def l2(self):
@@ -229,74 +274,29 @@ class LinearCombiner:
 
     display_name = "LinearCombiner"
 
-    def __init__(self, feat_dict, prefix=""):
-        self.feat_dict = feat_dict
+    def __init__(self, linear_feats, prefix=""):
+        self.linear_feats = linear_feats
         self.prefix = prefix
-        self.dense_feats = self.feat_dict.dense_feats
-
-    def __call__(self, inputs):
-        with tf.name_scope(f"{self.prefix}{self.display_name}"):
-            sparse_feat_tensors = []
-            offset = 0
-
-            for feat in (
-                self.feat_dict.sparse_feats
-                + self.feat_dict.sparse_val_feats
-                + self.feat_dict.multi_val_csv_feats
-            ):
-                feat_tensor = convert_to_sparse(
-                    tf.cast(one_hot(feat, inputs[feat.name]), tf.float32)
-                )
-                sparse_feat_tensors.append(feat_tensor)
-                offset += feat.feat_size
-
-            dense_feat_tensors = []
-            for dense_input in inputs.dense_inputs(self.feat_dict):
-                dense_feat_tensors.append(convert_to_sparse(dense_input))
-
-            self.output = tf.sparse.concat(
-                sp_inputs=sparse_feat_tensors + dense_feat_tensors,
-                axis=1,
-                name=f"{self.prefix}linear_input",
-            )
-            return self.output
-
-class LinearCombiner2:
-    """
-    Linear Combiner
-    """
-
-    display_name = "LinearCombiner"
-
-    def __init__(self, feat_dict, prefix=""):
-        self.feat_dict = feat_dict
-        self.prefix = prefix
-        self.dense_feats = self.feat_dict.dense_feats
 
     def __call__(self, inputs):
         with tf.name_scope(f"{self.prefix}{self.display_name}"):
             feat_tensors = []
             offset = 0
 
-            for feat in (
-                    self.feat_dict.sparse_feats
-                    + self.feat_dict.sparse_val_feats
-                    + self.feat_dict.multi_val_csv_feats
-            ):
-                feat_tensor = tf.cast(one_hot(feat, inputs[feat.name]), tf.float32)
-                feat_tensors.append(feat_tensor)
+            for feat in self.linear_feats:
+                if isinstance(feat, DenseFeat):
+                    feat_tensors.append(inputs[feat.name])
+                else:
+                    feat_tensor = tf.cast(one_hot(feat, inputs[feat.name]), tf.float32)
+                    feat_tensors.append(feat_tensor)
+
                 offset += feat.feat_size
 
-            dense_feat_tensors = []
-            for dense_input in inputs.dense_inputs(self.feat_dict):
-                dense_feat_tensors.append(dense_input)
-
             self.output = tf.concat(
-                feat_tensors + dense_feat_tensors,
-                axis=1,
-                name=f"{self.prefix}linear_input",
+                feat_tensors, axis=1, name=f"{self.prefix}linear_input"
             )
             return self.output
+
 
 class LinearLayer:
     """
@@ -305,9 +305,11 @@ class LinearLayer:
 
     display_name = "LinearRegression"
 
-    def __init__(self, variables, feat_dict, l2_reg=0.00001, prefix="", training=True):
+    def __init__(
+        self, variables, linear_feats, l2_reg=0.00001, prefix="", training=True
+    ):
         self.variables = variables
-        self.feat_dict = feat_dict
+        self.linear_feats = linear_feats
         self.l2_reg = l2_reg
         self.prefix = prefix
         self.training = training
@@ -315,23 +317,19 @@ class LinearLayer:
     def _upsert_variables(self, input_shape):
         name = f"{self.prefix}linear_w0"
         if name not in self.variables:
-            self.variables[name] = tf.Variable(tf.zeros([1]), name=name)
+            self.variables[name] = tf.Variable(
+                tf.zeros([1]), name=name, dtype=tf.float32
+            )
 
         name = f"{self.prefix}linear_w"
         if name not in self.variables:
-            self.variables[name] = tf.Variable(tf.zeros([input_shape[1], 1]), name=name)
+            self.variables[name] = tf.Variable(
+                tf.zeros([input_shape[1], 1]), name=name, dtype=tf.float32
+            )
 
     def __call__(self, inputs):
-        feat_total_size = 0
-        for feat in (
-            self.feat_dict.sparse_feats
-            + self.feat_dict.sparse_val_feats
-            + self.feat_dict.multi_val_csv_feats
-            + self.feat_dict.dense_feats
-        ):
-            feat_total_size += feat.feat_size
-
         with tf.name_scope(f"{self.prefix}{self.display_name}"):
+            feat_total_size = sum([feat.feat_size for feat in self.linear_feats])
             self._upsert_variables([-1, feat_total_size])
 
             W = self.variables[f"{self.prefix}linear_w"]
@@ -339,14 +337,97 @@ class LinearLayer:
 
             if not self.training:
                 feat_weights = []
-                for feat in (
-                    self.feat_dict.sparse_feats
-                    + self.feat_dict.sparse_val_feats
-                    + self.feat_dict.multi_val_csv_feats
-                    + self.feat_dict.dense_feats
-                ):
+                for feat in self.linear_feats:
                     feat_weights.append(
-                        convert_to_sparse(
+                        tf.convert_to_tensor(feat.weights, dtype=tf.float32)
+                    )
+                feat_weights = tf.expand_dims(tf.concat(feat_weights, axis=-1), axis=1)
+                W = tf.add(W, feat_weights)
+
+            return tf.nn.bias_add(tf.matmul(inputs, W, a_is_sparse=True), W0)
+
+    def l2(self):
+        return tf.multiply(
+            self.l2_reg,
+            tf.nn.l2_loss(self.variables[f"{self.prefix}linear_w"]),
+            name=f"{self.prefix}linear_l2",
+        )
+
+
+class SparseLinearCombiner:
+    """
+    SparseLinear Combiner
+    """
+
+    display_name = "SparseLinearCombiner"
+
+    def __init__(self, linear_feats, prefix=""):
+        self.linear_feats = linear_feats
+        self.prefix = prefix
+
+    def __call__(self, inputs):
+        with tf.name_scope(f"{self.prefix}{self.display_name}"):
+            feat_tensors = []
+            offset = 0
+
+            for feat in self.linear_feats:
+                if isinstance(feat, DenseFeat):
+                    feat_tensors.append(convert_to_sparse_tensor(inputs[feat.name]))
+                else:
+                    feat_tensor = convert_to_sparse_tensor(
+                        tf.cast(one_hot(feat, inputs[feat.name]), tf.float32)
+                    )
+                    feat_tensors.append(feat_tensor)
+                offset += feat.feat_size
+
+            self.output = tf.sparse.concat(
+                sp_inputs=feat_tensors, axis=1, name=f"{self.prefix}linear_input"
+            )
+            return self.output
+
+
+class SparseLinearLayer:
+    """
+    SparseLinearLayer
+    """
+
+    display_name = "SparseLinearLayer"
+
+    def __init__(
+        self, variables, linear_feats, l2_reg=0.00001, prefix="", training=True
+    ):
+        self.variables = variables
+        self.linear_feats = linear_feats
+        self.l2_reg = l2_reg
+        self.prefix = prefix
+        self.training = training
+
+    def _upsert_variables(self, input_shape):
+        name = f"{self.prefix}linear_w0"
+        if name not in self.variables:
+            self.variables[name] = tf.Variable(
+                tf.zeros([1]), name=name, dtype=tf.float32
+            )
+
+        name = f"{self.prefix}linear_w"
+        if name not in self.variables:
+            self.variables[name] = tf.Variable(
+                tf.zeros([input_shape[1], 1]), name=name, dtype=tf.float32
+            )
+
+    def __call__(self, inputs):
+        with tf.name_scope(f"{self.prefix}{self.display_name}"):
+            feat_total_size = sum([feat.feat_size for feat in self.linear_feats])
+            self._upsert_variables([-1, feat_total_size])
+
+            W = self.variables[f"{self.prefix}linear_w"]
+            W0 = self.variables[f"{self.prefix}linear_w0"]
+
+            if not self.training:
+                feat_weights = []
+                for feat in self.linear_feats:
+                    feat_weights.append(
+                        convert_to_sparse_tensor(
                             tf.convert_to_tensor(feat.weights, dtype=tf.float32)
                         )
                     )
@@ -364,71 +445,6 @@ class LinearLayer:
             name=f"{self.prefix}linear_l2",
         )
 
-class LinearLayer2:
-    """
-    Linear Layer
-    """
-
-    display_name = "LinearRegression"
-
-    def __init__(self, variables, feat_dict, l2_reg=0.00001, prefix="", training=True):
-        self.variables = variables
-        self.feat_dict = feat_dict
-        self.l2_reg = l2_reg
-        self.prefix = prefix
-        self.training = training
-
-    def _upsert_variables(self, input_shape):
-        name = f"{self.prefix}linear_w0"
-        if name not in self.variables:
-            self.variables[name] = tf.Variable(tf.zeros([1]), name=name)
-
-        name = f"{self.prefix}linear_w"
-        if name not in self.variables:
-            self.variables[name] = tf.Variable(tf.zeros([input_shape[1], 1]), name=name)
-
-    def __call__(self, inputs):
-        feat_total_size = 0
-        for feat in (
-                self.feat_dict.sparse_feats
-                + self.feat_dict.sparse_val_feats
-                + self.feat_dict.multi_val_csv_feats
-                + self.feat_dict.dense_feats
-        ):
-            feat_total_size += feat.feat_size
-
-        with tf.name_scope(f"{self.prefix}{self.display_name}"):
-            self._upsert_variables([-1, feat_total_size])
-
-            W = self.variables[f"{self.prefix}linear_w"]
-            W0 = self.variables[f"{self.prefix}linear_w0"]
-
-            if not self.training:
-                feat_weights = []
-                for feat in (
-                        self.feat_dict.sparse_feats
-                        + self.feat_dict.sparse_val_feats
-                        + self.feat_dict.multi_val_csv_feats
-                        + self.feat_dict.dense_feats
-                ):
-                    feat_weights.append(
-
-                            tf.convert_to_tensor(feat.weights, dtype=tf.float32)
-
-                    )
-                feat_weights = tf.expand_dims(
-                    tf.concat(feat_weights, axis=-1), axis=1
-                )
-                W = tf.add(W, feat_weights)
-
-            return tf.nn.bias_add(tf.matmul(inputs, W), W0)
-
-    def l2(self):
-        return tf.multiply(
-            self.l2_reg,
-            tf.nn.l2_loss(self.variables[f"{self.prefix}linear_w"]),
-            name=f"{self.prefix}linear_l2",
-        )
 
 class FMLayer:
     """
@@ -543,7 +559,7 @@ class DNN:
             if name not in self.variables:
                 self.variables[name] = tf.Variable(
                     tf.zeros([self.hidden_units[i]]), name=name, dtype=tf.float32
-                )  # 1 * layer[i]
+                )
 
         name = f"{self.prefix}dnn_w"
         if name not in self.variables:
@@ -566,17 +582,13 @@ class DNN:
                 auto_hidden_units = compute_hidden_units_s2(
                     len(self.hidden_units), input_shape[-1]
                 )
-            self.hidden_units = [
-                auto_hidden_units[idx] if val is None else val
-                for idx, val in enumerate(self.hidden_units)
-            ]
+                self.hidden_units = auto_hidden_units
 
             self._create_weights(input_shape)
 
             y_deep = tf.nn.dropout(
                 inputs, rate=1 - self.dropout[0], name="dnn_layer_0_input"
             )
-            self.y_deep = inputs
             for i in range(len(self.hidden_units)):
                 y_deep = tf.nn.bias_add(
                     tf.matmul(
@@ -655,7 +667,7 @@ class CIN:
                         [1, field_nums[-1] * field_nums[0], size], seed=self.seed
                     ),
                     name=name,
-                    dtype=np.float32,
+                    dtype=tf.float32,
                 )
 
             name = f"{self.prefix}cin_bias_{i}"
@@ -663,7 +675,7 @@ class CIN:
                 self.variables[name] = tf.Variable(
                     tf.zeros([size]),
                     name=f"{self.prefix}cin_bias_{i}",
-                    dtype=np.float32,
+                    dtype=tf.float32,
                 )
 
             field_nums.append(size // 2)
@@ -675,9 +687,7 @@ class CIN:
         name = f"{self.prefix}cin_w"
         if name not in self.variables:
             self.variables[name] = tf.Variable(
-                glorot_uniform([final_size, 1], seed=self.seed),
-                name=name,
-                dtype=np.float32,
+                glorot_uniform([final_size, 1]), name=name, dtype=tf.float32
             )
 
         name = f"{self.prefix}cin_w0"

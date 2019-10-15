@@ -8,7 +8,7 @@ import tqdm
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import shuffle
 
-from .inputs import DataInputs, FeatureDictionary
+from ..inputs import DataInputs, FeatureDictionary
 
 
 log = logging.getLogger(__name__)
@@ -19,14 +19,14 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
     __metaclass__ = ABCMeta
 
     def __init__(
-            self,
-            feat_dict: FeatureDictionary,
-            hparams: dict,
-            metrics,
-            epoch,
-            batch_size=64,
-            random_seed=2019,
-            task="classification",
+        self,
+        feat_dict: FeatureDictionary,
+        hparams: dict,
+        metrics,
+        epoch,
+        batch_size=64,
+        random_seed=2019,
+        task="classification",
     ):
         assert task in [
             "classification",
@@ -42,7 +42,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
         self.metrics = metrics
         self.variables = dict()
 
-    def predict(self, X, training=False):
+    def predict(self, X, training=False, batch_number_to_show_progress=50):
         dummy_y = np.array([1] * len(X))
         y_pred = None
 
@@ -69,8 +69,8 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
 
         return y_pred
 
-    def evaluate(self, X, y, training=False):
-        pred = self.predict(X, training)
+    def evaluate(self, X, y, training=False, batch_number_to_show_progress=50):
+        pred = self.predict(X, training, batch_number_to_show_progress)
         return [metric(y, pred) for metric in self.metrics]
 
     @staticmethod
@@ -80,7 +80,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
         end = end if end < len(y) else len(y)
         return X[start:end], y[start:end]
 
-    def load(self):
+    def restore(self):
         ckpt = tf.train.Checkpoint(**self.variables)
         status = ckpt.restore(tf.train.latest_checkpoint("."))
         status.assert_consumed()
@@ -90,14 +90,26 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
         pass
 
     def _eval_at_epoch(
-            self, X_train, y_train, X_valid=None, y_valid=None, start_time=time(), epoch=0
+        self,
+        X_train,
+        y_train,
+        X_valid=None,
+        y_valid=None,
+        start_time=time(),
+        epoch=0,
+        batch_number_to_show_progress=50,
     ):
         has_valid = X_valid is not None and y_valid is not None
-        train_res = self.evaluate(X_train, y_train, training=True)
+        train_res = self.evaluate(
+            X_train,
+            y_train,
+            training=True,
+            batch_number_to_show_progress=batch_number_to_show_progress,
+        )
 
         if has_valid:
             valid_res = self.evaluate(X_valid, y_valid, training=True)
-            print(
+            log.info(
                 "[%d] train-result=%s, valid-result=%s [%.1f s]"
                 % (
                     epoch,
@@ -108,7 +120,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
             )
             return train_res, valid_res
         else:
-            print(
+            log.info(
                 "[%d] train-result=%s [%.1f s]"
                 % (
                     epoch,
@@ -127,15 +139,16 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
         pass
 
     def fit(
-            self,
-            X_train,
-            y_train,
-            X_valid=None,
-            y_valid=None,
-            random_seed_for_mini_batch=True,
-            show_progress=False,
-            tb_logger=None,
-            epoch_callback=None,
+        self,
+        X_train,
+        y_train,
+        X_valid=None,
+        y_valid=None,
+        random_seed_for_mini_batch=True,
+        tb_logger=None,
+        epoch_callback=None,
+        show_progress=False,
+        batch_number_to_show_progress=50,
     ):
         assert X_train is not None or y_train is not None
 
@@ -143,7 +156,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
             tb_logger.configure_hparams(self.hparams, self.metrics)
 
         with tqdm.tqdm(
-                desc="fit", total=self.epoch, disable=not show_progress
+            desc="fit", total=self.epoch, disable=not show_progress
         ) as progress:
             if tb_logger is not None:
                 tb_logger.trace_on(epoch=0, graph=True, profiler=False)
@@ -174,22 +187,20 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
                 y_train = shuffle(y_train, random_state=seed)
                 total_batch = len(y_train) // self.batch_size + 1
 
-                if tb_logger is not None:
-                    tb_logger.trace_on(epoch, graph=False, profiler=True)
-
                 for i in range(total_batch):
                     Xi_batch, y_batch = self.get_batch(
                         X_train, y_train, self.batch_size, i
                     )
 
+                    if tb_logger is not None and i % batch_number_to_show_progress == 0:
+                        tb_logger.trace_on(epoch, graph=False, profiler=True)
                     self.fit_on_batch(Xi_batch, y_batch)
+                    if tb_logger is not None and i % batch_number_to_show_progress == 0:
+                        tb_logger.trace_off(epoch)
 
-                    if i % 50 == 0:
+                    if i % batch_number_to_show_progress == 0:
                         log.info(f"Fit: {(i + 1)}/{total_batch} has been completed")
                 log.info(f"Fit: {total_batch}/{total_batch} has been completed")
-
-                if tb_logger is not None:
-                    tb_logger.trace_off(epoch)
 
                 eval_results = self._eval_at_epoch(
                     X_train=X_train,
@@ -197,6 +208,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
                     X_valid=X_valid,
                     y_valid=y_valid,
                     start_time=time(),
+                    batch_number_to_show_progress=batch_number_to_show_progress,
                 )
                 if tb_logger is not None:
                     tb_logger.log_params(
@@ -207,6 +219,12 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
                     )
 
                 if epoch_callback:
-                    epoch_callback(self.variables, eval_results)
+                    epoch_callback(
+                        feat_dict=self.feat_dict,
+                        hp_val=self.hparams,
+                        variables=self.variables,
+                        eval_results=eval_results,
+                        df_all=X_train[:1],
+                    )
 
                 progress.update(1)

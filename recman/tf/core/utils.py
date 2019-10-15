@@ -2,19 +2,49 @@ import logging
 import numpy as np
 import tensorflow as tf
 
-from .inputs import MultiValCsvFeat, SparseFeat, SparseValueFeat
+from ..inputs import MultiValCsvFeat, SparseFeat, SparseValueFeat
 
 
 log = logging.getLogger(__name__)
 
 
-def convert_to_sparse(labels) -> tf.SparseTensor:
+def split_train_test(df_all, frac=0.8, random_seed=2019):
+    df_X_train = df_all.sample(frac=frac, random_state=random_seed)
+    df_X_rest = df_all.drop(df_X_train.index)
+    df_X_valid = df_X_rest.sample(frac=0.5, random_state=random_seed)
+    df_X_test = df_X_rest.drop(df_X_valid.index)
+
+    df_X_train.info()
+    df_X_valid.info()
+    df_X_test.info()
+
+    log.info(df_X_train.LABEL.describe())
+    log.info(df_X_valid.LABEL.describe())
+    log.info(df_X_test.LABEL.describe())
+    return df_X_train, df_X_valid, df_X_test
+
+
+def get_linear_features(feat_dict, linear_feats):
+    if linear_feats:
+        return [feat_dict[feat_name] for feat_name in linear_feats.split(",")]
+    else:
+        return (
+                feat_dict.sparse_feats
+                + feat_dict.sparse_val_feats
+                + feat_dict.multi_val_csv_feats
+                + feat_dict.dense_feats
+        )
+
+
+def convert_to_sparse_tensor(dense_tensor) -> tf.SparseTensor:
     indices = tf.where(
-        condition=tf.not_equal(x=labels, y=tf.constant(0, dtype=labels.dtype))
+        condition=tf.not_equal(
+            x=dense_tensor, y=tf.constant(0, dtype=dense_tensor.dtype)
+        )
     )
-    values = tf.gather_nd(labels, indices)
+    values = tf.gather_nd(dense_tensor, indices)
     return tf.sparse.SparseTensor(
-        indices, values, dense_shape=tf.shape(labels, out_type=tf.int64)
+        indices, values, dense_shape=tf.shape(dense_tensor, out_type=tf.int64)
     )
 
 
@@ -153,10 +183,10 @@ def glorot_normal(weight_shape, gain=1.0, seed=2019):
     return tf.random.truncated_normal(mean=0, stddev=std, shape=weight_shape, seed=seed)
 
 
-def glorot_uniform(weight_shape, gain=1.0, seed=2019):
+def glorot_uniform(weight_shape, gain=1.0):
     fan_in, fan_out = calc_fan(weight_shape)
     b = gain * np.sqrt(6 / (fan_in + fan_out))
-    return tf.random.uniform(shape=weight_shape, minval=-b, maxval=b, seed=seed)
+    return tf.random.uniform(shape=weight_shape, minval=-b, maxval=b)
 
 
 def create_loss(y_true, y_pred, task):
@@ -193,3 +223,28 @@ def count_parameters(variables):
         total_parameters += variable_parameters
 
     return total_parameters
+
+
+def wrap_up(run_name):
+    import boto3
+    from zipfile import ZipFile
+    from yilia.configuration import S3_BUCKET
+
+    s3 = boto3.client("s3")
+
+    file_paths = [
+        "ckpt_model-1.data-00000-of-00001",
+        "ckpt_model-1.index",
+        "feat_dict",
+        "hparams",
+        "df_all",
+    ]
+    zip_file = "deep.latest"
+    with ZipFile(zip_file, "w") as zip:
+        # writing each file one by one
+        for file in file_paths:
+            zip.write(file)
+
+    s3 = boto3.resource("s3")
+    s3.meta.client.upload_file(zip_file, S3_BUCKET, f"models/deep.latest")
+    s3.meta.client.upload_file(zip_file, S3_BUCKET, f"models/deep.{run_name}")

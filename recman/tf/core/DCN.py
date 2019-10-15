@@ -1,7 +1,7 @@
 import tensorflow as tf
 from sklearn.metrics import log_loss, roc_auc_score
 
-from .inputs import FeatureDictionary
+from ..inputs import FeatureDictionary
 from .DeepModel import DeepModel
 from .layers import (
     # CrossNet,

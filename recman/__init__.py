@@ -17,4 +17,5 @@ def config_logger():
 
     dictConfig(logging_config)
 
+
 config_logger()
