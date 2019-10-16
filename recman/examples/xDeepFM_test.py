@@ -111,8 +111,13 @@ log.info(
 Training job has completed
 RunName: {run_name}
 BestScore: {best_model_finder.best_score}
-BestHpVal: {best_model_finder.best_hp_val}
+BestHpVal: {best_model_finder.best_model.hparams}
 BestEvalResults: {best_model_finder.best_eval_results}
 ---------------------------------
 """
 )
+
+df_test = df_X.copy()
+df_test["PRED"] = best_model_finder.best_model.predict(df_test)
+df_test.sort_values("PRED", ascending=False)
+log.info(df_test)

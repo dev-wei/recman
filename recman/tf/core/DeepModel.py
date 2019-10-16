@@ -220,9 +220,7 @@ class DeepModel(BaseEstimator, TransformerMixin, ABC):
 
                 if epoch_callback:
                     epoch_callback(
-                        feat_dict=self.feat_dict,
-                        hp_val=self.hparams,
-                        variables=self.variables,
+                        model=self,
                         eval_results=eval_results,
                         df_all=X_train[:1],
                     )
