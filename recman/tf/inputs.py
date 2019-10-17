@@ -5,7 +5,6 @@ from collections import OrderedDict
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-
 class FeatureDictionary(OrderedDict):
     """
     Packing all Feature Definitions

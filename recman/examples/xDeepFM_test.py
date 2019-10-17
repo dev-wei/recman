@@ -61,14 +61,12 @@ feat_dict["CATEGORY"] = SparseFeat(
     name="CATEGORY",
     feat_size=len(np.unique(df_X.CATEGORY.values)),
     dtype=tf.int64,
-    # weights={"Outdoor": -0.5},
     description="0 presents the first category",
 )
 feat_dict["HISTORICAL_CATEGORIES"] = MultiValCsvFeat(
     name="HISTORICAL_CATEGORIES",
     tags=("a", "b", "c", "d"),
     dtype=tf.string,
-    # weights={"a": -0.5, "d": -1},
     description="workout categories a user used to engage with",
 )
 feat_dict.initialize(df_X)
@@ -93,7 +91,7 @@ for sess_num, hp_val in enumerate(hp_params.grid_search()):
         batch_size=128,
         metrics=metrices,
         random_seed=RANDOM_SEED,
-        epoch=1,
+        epoch=5,
     )
     model.fit(
         df_X,
@@ -118,6 +116,14 @@ BestEvalResults: {best_model_finder.best_eval_results}
 )
 
 df_test = df_X.copy()
-df_test["PRED"] = best_model_finder.best_model.predict(df_test)
-df_test.sort_values("PRED", ascending=False)
+df_test["PRED"] = best_model_finder.best_model.predict(df_test, training=True)
+df_test = df_test.sort_values("PRED", ascending=False)
+log.info(df_test)
+
+model = best_model_finder.best_model
+model.feat_dict["CATEGORY"].set_weights({"Outdoor": -5})
+model.feat_dict["HISTORICAL_CATEGORIES"].set_weights({"Outdoor": -5})
+df_test = df_X.copy()
+df_test["PRED"] = best_model_finder.best_model.predict(df_test, training=False)
+df_test = df_test.sort_values("PRED", ascending=False)
 log.info(df_test)

@@ -8,8 +8,8 @@ from .layers import (
     FeatEmbeddingLayer,
     SparseLinearCombiner,
     SparseLinearLayer,
-    # LinearCombiner,
-    # LinearLayer,
+    LinearCombiner,
+    LinearLayer,
     PredictionLayer,
 )
 from .utils import create_loss, create_optimizer, get_linear_features
@@ -54,7 +54,7 @@ class xDeepFM(DeepModel):
             use_bias=False,
             seed=self.random_seed,
         )
-        feat_embeds, feat_bias = self.embeddings(inputs)
+        feat_embeds, _ = self.embeddings(inputs)
 
         linear_feats = get_linear_features(
             self.feat_dict, self.hparams[HyperParams.LinearFeatures]
