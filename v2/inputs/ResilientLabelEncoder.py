@@ -10,7 +10,7 @@ class ResilientLabelEncoder:
 
     def _get_null_value(self, dtype):
         if np.issubdtype(dtype, np.number):
-            return -1
+            return float("-inf")
         else:
             return "-------"
 
@@ -27,9 +27,8 @@ class ResilientLabelEncoder:
             y = pd.Series(y)
 
         if self.nullable:
-            all_classes = set(self._encoder.classes_)
             y = y.copy()
-            y.loc[~y.isin(all_classes)] = self._get_null_value(y.dtype)
+            y.loc[~y.isin(set(self._encoder.classes_))] = self._get_null_value(y.dtype)
             return self._encoder.transform(y)
         else:
             return self._encoder.transform(y)
@@ -39,4 +38,4 @@ class ResilientLabelEncoder:
         return self.transform(y)
 
     def inverse_transform(self, y):
-        return y.apply(self._encoder.inverse_transform)
+        return self._encoder.inverse_transform(y)
