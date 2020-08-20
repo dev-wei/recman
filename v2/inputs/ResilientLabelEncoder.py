@@ -39,3 +39,7 @@ class ResilientLabelEncoder:
 
     def inverse_transform(self, y):
         return self._encoder.inverse_transform(y)
+
+    @property
+    def unique_values_count(self):
+        return len(self._encoder.classes_)
