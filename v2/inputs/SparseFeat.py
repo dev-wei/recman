@@ -6,13 +6,20 @@ from .ResilientLabelEncoder import ResilientLabelEncoder
 
 class SparseFeat:
     """
-    Single Sparse Feature for Normalized Field
+    Single Sparse Feature for categorical data.
+
+    for example. user_id, product_id belong to this field type
+    user_id: [a1, b2, c3, d4]. converted into
+    user_row, a1, b2, c3, d4
+    1,        x
+    2,            x
+    3,                x
+    4,                    x
     """
 
     def __init__(
         self,
         name,
-        feat_size,
         dtype=tf.int64,
         normalizer=ResilientLabelEncoder(),
         description=None,
@@ -21,34 +28,28 @@ class SparseFeat:
         self.dtype = dtype
         self.description = description
         self.normalizer = normalizer
+        self.feat_size = None
 
-        # always adding 1 for the room of null value
-        self.feat_size = feat_size + 1
+        assert self.normalizer
 
     def get_shape(self, for_tf=True):
         return None if for_tf else -1, 1
 
-    def set_weights(self, val):
-        self._weights = val
-        self._weights_cache = None
-
     def initialize(self, X):
-        if self.normalizer:
-            self.normalizer.fit(X)
+        self.normalizer.fit(X)
+        self.feat_size = self.normalizer.unique_values_count
 
     def __call__(self, X):
-        if self.normalizer:
-            X = self.normalizer.transform(X)
-
+        X = self.normalizer.transform(X)
         return X.astype(dtype=self.dtype.as_numpy_dtype).reshape(
             self.get_shape(for_tf=False)
         )
 
     def decode(self, X):
-        return self.normalizer.inverse_transform(X) if self.normalizer else X
+        return self.normalizer.inverse_transform(X)
 
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
-        return f"SparseFeat(name={self.name}, feat_size={self.feat_size}, dtype={self.dtype})"
+        return f"{self.__class__.__name__}(name={self.name}, feat_size={self.feat_size}, dtype={self.dtype})"
