@@ -33,4 +33,8 @@ class DenseFeat:
         return self.__repr__()
 
     def __repr__(self):
-        return f"SparseFeat(name={self.name}, feat_size={self.feat_size}, dtype={self.dtype})"
+        return (
+            f"{self.__class__.__name__}(name={self.name}, "
+            f"feat_size={self.feat_size}, "
+            f"dtype={self.dtype})"
+        )
